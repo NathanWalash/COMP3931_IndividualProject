@@ -9,6 +9,8 @@ Finite-difference skin diffusion solver with regime-driven configs, plus ML surr
    - `pip install -r requirements.txt`
 3) Run a script:
    - `python -m scripts.sim.run_sim --config configs/sim/v1_baseline.yaml`
+   - If import error, set the Python path first:
+     - Windows PowerShell: `$env:PYTHONPATH="src"`
 
 ## Repo layout
 

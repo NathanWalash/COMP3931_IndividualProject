@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 
 from skin_diffusion.config import load_config
+from skin_diffusion.grid import create_coords, create_time
 from skin_diffusion.utils import ensure_dir, set_seed, write_json
 
 
@@ -20,6 +21,10 @@ def main():
     out_dir = Path(cfg.output_dir)
     ensure_dir(out_dir)
 
+    # build coords and time
+    x, y = create_coords(cfg.grid.H, cfg.grid.W, cfg.grid.dx)
+    t_all, t_save_idx, t_save = create_time(cfg.grid.T, cfg.grid.dt, cfg.grid.save_every)
+
     # build simple metadata
     meta = {}
     meta["timestamp"] = datetime.now().isoformat()
@@ -31,11 +36,15 @@ def main():
         "boundary": cfg.boundary.__dict__,
         "extras": cfg.extras,
     }
+    meta["t_save"] = t_save.tolist()
 
     # save metadata
     meta_path = out_dir / "meta.json"
     write_json(meta_path, meta)
 
+    print("x shape:", x.shape)
+    print("y shape:", y.shape)
+    print("t_save shape:", t_save.shape)
     print("loaded config:", cfg.regime_name)
     print("wrote:", meta_path)
 
