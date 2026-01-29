@@ -1,0 +1,6 @@
+﻿numpy
+matplotlib
+pyyaml
+# optional
+# tqdm
+# pytest
