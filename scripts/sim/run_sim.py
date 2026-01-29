@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
+from skin_diffusion.bc import make_patch_mask
 from skin_diffusion.checks import stability_limit_diffusion
 from skin_diffusion.config import load_config
 from skin_diffusion.grid import create_coords
@@ -50,6 +51,14 @@ def main():
     # build coords
     x, y = create_coords(cfg.grid.H, cfg.grid.W, cfg.grid.dx)
 
+    # make patch mask
+    patch_mask = make_patch_mask(
+        cfg.grid.H,
+        cfg.grid.W,
+        cfg.boundary.patch_width,
+        cfg.boundary.patch_offset,
+    )
+
     # init and run (no BC)
     C0 = init_state(cfg.grid.H, cfg.grid.W)
     D_scalar = 1.0
@@ -84,6 +93,7 @@ def main():
     print("t_save shape:", t_save.shape)
     print("C0 shape:", C0.shape)
     print("C_snap shape:", C_snap.shape)
+    print("patch_mask true count:", int(patch_mask.sum()))
     print("loaded config:", cfg.regime_name)
     print("wrote:", meta_path)
 
