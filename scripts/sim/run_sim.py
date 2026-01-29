@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
+from skin_diffusion.checks import stability_limit_diffusion
 from skin_diffusion.config import load_config
 from skin_diffusion.grid import create_coords
 from skin_diffusion.operators import step_constant_D
@@ -54,6 +55,9 @@ def main():
     D_scalar = 1.0
     C_snap, t_save = simulate_v1_no_bc(C0, D_scalar, cfg.grid)
 
+    # compute stability info
+    dt_max = stability_limit_diffusion(D_scalar, cfg.grid.dx)
+
     # build simple metadata
     meta = {}
     meta["timestamp"] = datetime.now().isoformat()
@@ -66,6 +70,7 @@ def main():
         "extras": cfg.extras,
     }
     meta["t_save"] = t_save.tolist()
+    meta["stability"] = {"dt": cfg.grid.dt, "dt_max": dt_max}
 
     # save metadata
     meta_path = out_dir / "meta.json"
