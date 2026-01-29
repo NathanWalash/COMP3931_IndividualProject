@@ -2,6 +2,7 @@
 import yaml
 
 
+# grid settings
 @dataclass
 class GridConfig:
     H: int
@@ -12,6 +13,7 @@ class GridConfig:
     save_every: int
 
 
+# boundary settings
 @dataclass
 class BoundaryConfig:
     mode: str
@@ -24,6 +26,7 @@ class BoundaryConfig:
     top_offpatch_mode: str
 
 
+# full run config
 @dataclass
 class RunConfig:
     seed: int
@@ -34,7 +37,8 @@ class RunConfig:
     extras: dict
 
 
-def _grid_from_dict(d: dict) -> GridConfig:
+def _grid_from_dict(d):
+    # read grid section
     return GridConfig(
         H=int(d["H"]),
         W=int(d["W"]),
@@ -45,7 +49,8 @@ def _grid_from_dict(d: dict) -> GridConfig:
     )
 
 
-def _boundary_from_dict(d: dict) -> BoundaryConfig:
+def _boundary_from_dict(d):
+    # read boundary section
     return BoundaryConfig(
         mode=str(d["mode"]),
         C0=float(d["C0"]),
@@ -58,20 +63,23 @@ def _boundary_from_dict(d: dict) -> BoundaryConfig:
     )
 
 
-def load_config(path) -> RunConfig:
+def load_config(path):
     # keep config loading plain and repeatable
     with open(path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
 
+    # parse sections
     grid = _grid_from_dict(raw["grid"])
     boundary = _boundary_from_dict(raw["boundary"])
 
+    # keep any extra keys for later
     known = {"seed", "output_dir", "regime_name", "grid", "boundary"}
     extras = {}
     for key in raw:
         if key not in known:
             extras[key] = raw[key]
 
+    # pack into one object
     return RunConfig(
         seed=int(raw["seed"]),
         output_dir=str(raw["output_dir"]),

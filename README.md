@@ -7,8 +7,8 @@ Finite-difference skin diffusion solver with regime-driven configs, plus ML surr
 1) Create a virtual environment (optional)
 2) Install deps:
    - `pip install -r requirements.txt`
-3) Run a script (placeholder until Commit 1+):
-   - `python scripts/sim/run_sim.py --config configs/sim/v1_baseline.yaml`
+3) Run a script:
+   - `python -m scripts.sim.run_sim --config configs/sim/v1_baseline.yaml`
 
 ## Repo layout
 
