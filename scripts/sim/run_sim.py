@@ -5,9 +5,9 @@ from pathlib import Path
 import numpy as np
 
 from skin_diffusion.config import load_config
-from skin_diffusion.grid import create_coords, create_time
+from skin_diffusion.grid import create_coords
 from skin_diffusion.operators import step_constant_D
-from skin_diffusion.solver import allocate_snapshots, init_state
+from skin_diffusion.solver import init_state, simulate_v1_no_bc
 from skin_diffusion.utils import ensure_dir, set_seed, write_json
 
 
@@ -32,6 +32,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--demo_step", action="store_true")
+    parser.add_argument("--print_meta", action="store_true")
     args = parser.parse_args()
 
     if args.demo_step:
@@ -45,13 +46,13 @@ def main():
     out_dir = Path(cfg.output_dir)
     ensure_dir(out_dir)
 
-    # build coords and time
+    # build coords
     x, y = create_coords(cfg.grid.H, cfg.grid.W, cfg.grid.dx)
-    t_all, t_save_idx, t_save = create_time(cfg.grid.T, cfg.grid.dt, cfg.grid.save_every)
 
-    # init state and snapshots
+    # init and run (no BC)
     C0 = init_state(cfg.grid.H, cfg.grid.W)
-    C_snap = allocate_snapshots(len(t_save), cfg.grid.H, cfg.grid.W)
+    D_scalar = 1.0
+    C_snap, t_save = simulate_v1_no_bc(C0, D_scalar, cfg.grid)
 
     # build simple metadata
     meta = {}
@@ -69,6 +70,9 @@ def main():
     # save metadata
     meta_path = out_dir / "meta.json"
     write_json(meta_path, meta)
+
+    if args.print_meta:
+        print(meta)
 
     print("x shape:", x.shape)
     print("y shape:", y.shape)
