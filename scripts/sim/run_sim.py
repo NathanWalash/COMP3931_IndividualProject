@@ -4,6 +4,7 @@ from pathlib import Path
 
 from skin_diffusion.config import load_config
 from skin_diffusion.grid import create_coords, create_time
+from skin_diffusion.solver import allocate_snapshots, init_state
 from skin_diffusion.utils import ensure_dir, set_seed, write_json
 
 
@@ -25,6 +26,10 @@ def main():
     x, y = create_coords(cfg.grid.H, cfg.grid.W, cfg.grid.dx)
     t_all, t_save_idx, t_save = create_time(cfg.grid.T, cfg.grid.dt, cfg.grid.save_every)
 
+    # init state and snapshots
+    C0 = init_state(cfg.grid.H, cfg.grid.W)
+    C_snap = allocate_snapshots(len(t_save), cfg.grid.H, cfg.grid.W)
+
     # build simple metadata
     meta = {}
     meta["timestamp"] = datetime.now().isoformat()
@@ -45,6 +50,8 @@ def main():
     print("x shape:", x.shape)
     print("y shape:", y.shape)
     print("t_save shape:", t_save.shape)
+    print("C0 shape:", C0.shape)
+    print("C_snap shape:", C_snap.shape)
     print("loaded config:", cfg.regime_name)
     print("wrote:", meta_path)
 
