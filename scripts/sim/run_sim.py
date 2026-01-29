@@ -2,17 +2,40 @@
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
+
 from skin_diffusion.config import load_config
 from skin_diffusion.grid import create_coords, create_time
+from skin_diffusion.operators import step_constant_D
 from skin_diffusion.solver import allocate_snapshots, init_state
 from skin_diffusion.utils import ensure_dir, set_seed, write_json
+
+
+def _demo_step():
+    # quick demo for constant D step
+    H = 9
+    W = 9
+    dx = 1.0
+    dt = 0.1
+    D = 1.0
+    C = np.zeros((H, W), dtype=float)
+    C[H // 2, W // 2] = 1.0
+    C2 = step_constant_D(C, D, dt, dx)
+    mid = H // 2
+    print("demo center:", C2[mid, mid])
+    print("demo up/down:", C2[mid - 1, mid], C2[mid + 1, mid])
+    print("demo left/right:", C2[mid, mid - 1], C2[mid, mid + 1])
 
 
 def main():
     # read args
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
+    parser.add_argument("--demo_step", action="store_true")
     args = parser.parse_args()
+
+    if args.demo_step:
+        _demo_step()
 
     # load config
     cfg = load_config(args.config)
