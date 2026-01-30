@@ -9,7 +9,7 @@ from skin_diffusion.checks import stability_limit_diffusion
 from skin_diffusion.config import load_config
 from skin_diffusion.grid import create_coords
 from skin_diffusion.operators import step_constant_D
-from skin_diffusion.solver import init_state, simulate_v1_no_bc
+from skin_diffusion.solver import init_state, simulate_v1, simulate_v1_no_bc
 from skin_diffusion.utils import ensure_dir, set_seed, write_json
 
 
@@ -64,6 +64,7 @@ def main():
     parser.add_argument("--demo_step", action="store_true")
     parser.add_argument("--demo_bc", action="store_true")
     parser.add_argument("--print_meta", action="store_true")
+    parser.add_argument("--no_bc", action="store_true")
     args = parser.parse_args()
 
     if args.demo_step:
@@ -91,10 +92,13 @@ def main():
     if args.demo_bc:
         _demo_bc(cfg, patch_mask)
 
-    # init and run (no BC)
+    # init and run
     C0 = init_state(cfg.grid.H, cfg.grid.W)
     D_scalar = 1.0
-    C_snap, t_save = simulate_v1_no_bc(C0, D_scalar, cfg.grid)
+    if args.no_bc:
+        C_snap, t_save = simulate_v1_no_bc(C0, D_scalar, cfg.grid)
+    else:
+        C_snap, t_save = simulate_v1(C0, D_scalar, cfg.grid, cfg.boundary, patch_mask)
 
     # compute stability info
     dt_max = stability_limit_diffusion(D_scalar, cfg.grid.dx)
