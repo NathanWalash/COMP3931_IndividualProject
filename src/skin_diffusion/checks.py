@@ -20,3 +20,9 @@ def check_stability(dt, dt_max, mode="warn"):
 
     warnings.warn(msg)
     return False
+
+
+# simple l2 error between fields
+def l2_error(a, b):
+    diff = a - b
+    return float((diff * diff).mean() ** 0.5)

@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+from tqdm import tqdm
 
 from skin_diffusion.bc import make_patch_mask
 from skin_diffusion.config import load_config
@@ -30,7 +31,7 @@ def main():
     ensure_dir(out_dir)
     ensure_dir(fig_dir)
 
-    # make patch mask
+    # make patch mask for the donor patch
     patch_mask = make_patch_mask(
         cfg.grid.H,
         cfg.grid.W,
@@ -43,11 +44,11 @@ def main():
     D_scalar = 1.0
     C_snap, t_save = simulate_v1(C0, D_scalar, cfg.grid, cfg.boundary, patch_mask)
 
-    # save fields
+    # save fields for later plots/analysis
     fields_path = out_dir / "fields.npz"
     np.savez(fields_path, C_snap=C_snap, t_save=t_save, patch_mask=patch_mask)
 
-    # save meta
+    # save meta info for this run
     meta = {
         "run_id": run_id,
         "config": {
@@ -62,9 +63,9 @@ def main():
     meta_path = out_dir / "meta.json"
     write_json(meta_path, meta)
 
-    # pick 3 times
+    # pick 3 times to plot
     idxs = [0, len(t_save) // 2, len(t_save) - 1]
-    for i in idxs:
+    for i in tqdm(idxs, desc="saving figures"):
         C = C_snap[i]
         t = t_save[i]
         heat_path = fig_dir / f"heat_t{i:04d}.png"
@@ -72,7 +73,7 @@ def main():
         plot_heatmap(C, heat_path, title=f"t={t:.4f}")
         plot_depth_profile(C, prof_path)
 
-    # save mask image
+    # save mask image for sanity check
     mask_path = fig_dir / "patch_mask.png"
     plot_mask(patch_mask, mask_path)
 

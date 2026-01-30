@@ -1,4 +1,5 @@
 ﻿import numpy as np
+from tqdm import tqdm
 
 from skin_diffusion.bc import apply_bc, patch_concentration
 from skin_diffusion.checks import check_stability, stability_limit_diffusion
@@ -34,7 +35,8 @@ def simulate_v1_no_bc(C0, D_scalar, grid_cfg):
 
     # save every save_every steps
     save_i = 0
-    for step in range(len(t_all)):
+    steps = tqdm(range(len(t_all)), desc="simulate_v1_no_bc")
+    for step in steps:
         if step % grid_cfg.save_every == 0:
             # store a snapshot
             C_snap[save_i] = C
@@ -64,7 +66,8 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask):
 
     # save every save_every steps
     save_i = 0
-    for step in range(len(t_all)):
+    steps = tqdm(range(len(t_all)), desc="simulate_v1")
+    for step in steps:
         t = t_all[step]
 
         # patch value for this time
