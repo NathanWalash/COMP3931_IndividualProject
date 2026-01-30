@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from skin_diffusion.bc import make_patch_mask
+from skin_diffusion.bc import apply_bc, make_patch_mask, patch_concentration
 from skin_diffusion.checks import stability_limit_diffusion
 from skin_diffusion.config import load_config
 from skin_diffusion.grid import create_coords
@@ -29,11 +29,40 @@ def _demo_step():
     print("demo left/right:", C2[mid, mid - 1], C2[mid, mid + 1])
 
 
+def _demo_bc(cfg, patch_mask):
+    # quick demo for BCs
+    C = np.zeros((cfg.grid.H, cfg.grid.W), dtype=float)
+
+    # build patch value at t=0
+    Cpatch = patch_concentration(
+        0.0,
+        cfg.boundary.mode,
+        cfg.boundary.C0,
+        cfg.boundary.decay_rate,
+    )
+
+    # apply BCs to empty field
+    apply_bc(
+        C,
+        patch_mask,
+        Cpatch,
+        bottom_sink=True,
+        neumann_sides=True,
+        top_offpatch="neumann",
+    )
+
+    # check top and bottom rows
+    top_row = C[0]
+    print("bc top min/max:", float(top_row.min()), float(top_row.max()))
+    print("bc bottom max:", float(C[-1].max()))
+
+
 def main():
     # read args
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--demo_step", action="store_true")
+    parser.add_argument("--demo_bc", action="store_true")
     parser.add_argument("--print_meta", action="store_true")
     args = parser.parse_args()
 
@@ -58,6 +87,9 @@ def main():
         cfg.boundary.patch_width,
         cfg.boundary.patch_offset,
     )
+
+    if args.demo_bc:
+        _demo_bc(cfg, patch_mask)
 
     # init and run (no BC)
     C0 = init_state(cfg.grid.H, cfg.grid.W)
