@@ -4,7 +4,7 @@ from tqdm import tqdm
 from skin_diffusion.bc import apply_bc, patch_concentration
 from skin_diffusion.checks import check_stability, stability_limit_diffusion
 from skin_diffusion.grid import create_time
-from skin_diffusion.operators import step_constant_D
+from skin_diffusion.operators import step_constant_D, step_varD_conservative
 
 
 def init_state(H, W):
@@ -33,6 +33,9 @@ def simulate_v1_no_bc(C0, D_scalar, grid_cfg):
     # allocate saved frames
     C_snap = allocate_snapshots(len(t_save), grid_cfg.H, grid_cfg.W)
 
+    # constant D field for varD step
+    D = np.full((grid_cfg.H, grid_cfg.W), D_scalar, dtype=float)
+
     # save every save_every steps
     save_i = 0
     steps = tqdm(range(len(t_all)), desc="simulate_v1_no_bc")
@@ -44,7 +47,7 @@ def simulate_v1_no_bc(C0, D_scalar, grid_cfg):
 
         if step < len(t_all) - 1:
             # one diffusion step
-            C = step_constant_D(C, D_scalar, grid_cfg.dt, grid_cfg.dx)
+            C = step_varD_conservative(C, D, grid_cfg.dt, grid_cfg.dx)
 
     return C_snap, t_save
 
@@ -63,6 +66,9 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask):
     C = C0.copy()
     # allocate saved frames
     C_snap = allocate_snapshots(len(t_save), grid_cfg.H, grid_cfg.W)
+
+    # constant D field for varD step
+    D = np.full((grid_cfg.H, grid_cfg.W), D_scalar, dtype=float)
 
     # save every save_every steps
     save_i = 0
@@ -90,7 +96,7 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask):
 
         if step < len(t_all) - 1:
             # one diffusion step
-            C = step_constant_D(C, D_scalar, grid_cfg.dt, grid_cfg.dx)
+            C = step_varD_conservative(C, D, grid_cfg.dt, grid_cfg.dx)
 
         # re-apply BCs after step
         apply_bc(
