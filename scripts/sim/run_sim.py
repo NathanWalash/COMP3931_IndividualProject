@@ -9,7 +9,7 @@ from skin_diffusion.checks import stability_limit_diffusion
 from skin_diffusion.config import load_config
 from skin_diffusion.grid import create_coords
 from skin_diffusion.operators import step_constant_D
-from skin_diffusion.solver import init_state, simulate_v1, simulate_v1_no_bc
+from skin_diffusion.solver import compute_stability_info, init_state, simulate_v1, simulate_v1_no_bc
 from skin_diffusion.utils import ensure_dir, set_seed, write_json
 
 
@@ -101,7 +101,8 @@ def main():
         C_snap, t_save = simulate_v1(C0, D_scalar, cfg.grid, cfg.boundary, patch_mask)
 
     # compute stability info
-    dt_max = stability_limit_diffusion(D_scalar, cfg.grid.dx)
+    D_field = np.full((cfg.grid.H, cfg.grid.W), D_scalar, dtype=float)
+    stability_info = compute_stability_info(D_field, None, cfg.grid)
 
     # build simple metadata
     meta = {}
@@ -115,7 +116,7 @@ def main():
         "extras": cfg.extras,
     }
     meta["t_save"] = t_save.tolist()
-    meta["stability"] = {"dt": cfg.grid.dt, "dt_max": dt_max}
+    meta["stability"] = stability_info
 
     # save metadata
     meta_path = out_dir / "meta.json"

@@ -2,7 +2,7 @@
 from tqdm import tqdm
 
 from skin_diffusion.bc import apply_bc, patch_concentration
-from skin_diffusion.checks import check_stability, stability_limit_diffusion
+from skin_diffusion.checks import check_reaction_stability, check_stability, stability_limit_diffusion
 from skin_diffusion.grid import create_time
 from skin_diffusion.operators import step_constant_D, step_varD_conservative
 
@@ -109,3 +109,25 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask):
         )
 
     return C_snap, t_save
+
+
+def compute_stability_info(D, k, grid_cfg):
+    # collect stability info for metadata
+    info = {}
+
+    # diffusion max and limit
+    Dmax = float(np.max(D))
+    info["Dmax"] = Dmax
+    info["dt_diff_max"] = stability_limit_diffusion(Dmax, grid_cfg.dx)
+
+    # reaction max and limit
+    if k is None:
+        info["kmax"] = 0.0
+        info["dt_react_max"] = None
+    else:
+        kmax = float(np.max(k))
+        info["kmax"] = kmax
+        ok, dt_react_max = check_reaction_stability(grid_cfg.dt, kmax, mode="warn")
+        info["dt_react_max"] = dt_react_max
+
+    return info
