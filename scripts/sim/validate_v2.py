@@ -6,6 +6,12 @@ from tqdm import tqdm
 from skin_diffusion.config import load_config
 from skin_diffusion.bc import make_patch_mask
 from skin_diffusion.layers import build_D_field, build_k_field, build_layer_id
+from skin_diffusion.metrics import (
+    compute_bottom_flux,
+    compute_permeability,
+    estimate_lag_time,
+    estimate_steady_state_flux,
+)
 from skin_diffusion.solver import init_state, simulate_v1
 from skin_diffusion.utils import ensure_dir, write_json
 from skin_diffusion.viz import plot_depth_profile, plot_heatmap
@@ -64,6 +70,27 @@ def main():
     if diagnostics is not None:
         diag_path = Path(cfg.output_dir) / "diagnostics.json"
         write_json(diag_path, diagnostics)
+
+    # compute bottom flux curve and basic metrics
+    flux_curve = compute_bottom_flux(C_snap, D_field, cfg.grid.dx)
+    steady_flux = estimate_steady_state_flux(flux_curve, t_save)
+    lag_time = estimate_lag_time(flux_curve, t_save)
+    permeability = compute_permeability(steady_flux, cfg.boundary.C0)
+
+    # store metrics
+    metrics = {}
+    metrics["J"] = []
+    for val in flux_curve:
+        metrics["J"].append(float(val))
+    metrics["t"] = []
+    for val in t_save:
+        metrics["t"].append(float(val))
+    metrics["J_ss"] = steady_flux
+    metrics["Tlag"] = lag_time
+    metrics["P"] = permeability
+
+    metrics_path = Path(cfg.output_dir) / "metrics.json"
+    write_json(metrics_path, metrics)
 
     print("saved figures in:", fig_dir)
 
