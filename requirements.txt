@@ -1,6 +1,6 @@
 ﻿numpy
 matplotlib
 pyyaml
+tqdm
 # optional
-# tqdm
 # pytest

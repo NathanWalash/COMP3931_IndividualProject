@@ -4,12 +4,12 @@ from pathlib import Path
 
 import numpy as np
 
-from skin_diffusion.bc import make_patch_mask
+from skin_diffusion.bc import apply_bc, make_patch_mask, patch_concentration
 from skin_diffusion.checks import stability_limit_diffusion
 from skin_diffusion.config import load_config
 from skin_diffusion.grid import create_coords
 from skin_diffusion.operators import step_constant_D
-from skin_diffusion.solver import init_state, simulate_v1_no_bc
+from skin_diffusion.solver import compute_stability_info, init_state, simulate_v1, simulate_v1_no_bc
 from skin_diffusion.utils import ensure_dir, set_seed, write_json
 
 
@@ -29,12 +29,42 @@ def _demo_step():
     print("demo left/right:", C2[mid, mid - 1], C2[mid, mid + 1])
 
 
+def _demo_bc(cfg, patch_mask):
+    # quick demo for BCs
+    C = np.zeros((cfg.grid.H, cfg.grid.W), dtype=float)
+
+    # build patch value at t=0
+    Cpatch = patch_concentration(
+        0.0,
+        cfg.boundary.mode,
+        cfg.boundary.C0,
+        cfg.boundary.decay_rate,
+    )
+
+    # apply BCs to empty field
+    apply_bc(
+        C,
+        patch_mask,
+        Cpatch,
+        bottom_sink=True,
+        neumann_sides=True,
+        top_offpatch="neumann",
+    )
+
+    # check top and bottom rows
+    top_row = C[0]
+    print("bc top min/max:", float(top_row.min()), float(top_row.max()))
+    print("bc bottom max:", float(C[-1].max()))
+
+
 def main():
     # read args
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--demo_step", action="store_true")
+    parser.add_argument("--demo_bc", action="store_true")
     parser.add_argument("--print_meta", action="store_true")
+    parser.add_argument("--no_bc", action="store_true")
     args = parser.parse_args()
 
     if args.demo_step:
@@ -59,13 +89,24 @@ def main():
         cfg.boundary.patch_offset,
     )
 
-    # init and run (no BC)
+    if args.demo_bc:
+        _demo_bc(cfg, patch_mask)
+
+    # init and run
     C0 = init_state(cfg.grid.H, cfg.grid.W)
     D_scalar = 1.0
-    C_snap, t_save = simulate_v1_no_bc(C0, D_scalar, cfg.grid)
+    if args.no_bc:
+        C_snap, t_save, diagnostics = simulate_v1_no_bc(
+            C0, D_scalar, cfg.grid, compute_diagnostics=True
+        )
+    else:
+        C_snap, t_save, diagnostics = simulate_v1(
+            C0, D_scalar, cfg.grid, cfg.boundary, patch_mask, compute_diagnostics=True
+        )
 
     # compute stability info
-    dt_max = stability_limit_diffusion(D_scalar, cfg.grid.dx)
+    D_field = np.full((cfg.grid.H, cfg.grid.W), D_scalar, dtype=float)
+    stability_info = compute_stability_info(D_field, None, cfg.grid)
 
     # build simple metadata
     meta = {}
@@ -79,11 +120,32 @@ def main():
         "extras": cfg.extras,
     }
     meta["t_save"] = t_save.tolist()
-    meta["stability"] = {"dt": cfg.grid.dt, "dt_max": dt_max}
+    meta["stability"] = stability_info
 
     # save metadata
     meta_path = out_dir / "meta.json"
     write_json(meta_path, meta)
+
+    # save patch concentration over saved times
+    cpatch_curve = []
+    for t in t_save:
+        cpatch_curve.append(
+            float(
+                patch_concentration(
+                    float(t),
+                    cfg.boundary.mode,
+                    cfg.boundary.C0,
+                    cfg.boundary.decay_rate,
+                )
+            )
+        )
+    bc_path = out_dir / "bc.json"
+    write_json(bc_path, {"t": t_save.tolist(), "Cpatch": cpatch_curve})
+
+    # save diagnostics if available
+    if diagnostics is not None:
+        diag_path = out_dir / "diagnostics.json"
+        write_json(diag_path, diagnostics)
 
     if args.print_meta:
         print(meta)

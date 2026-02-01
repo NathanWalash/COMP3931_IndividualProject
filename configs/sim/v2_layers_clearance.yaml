@@ -1,6 +1,6 @@
 ﻿seed: 123
-output_dir: outputs/sim/v1
-regime_name: v1_baseline
+output_dir: outputs/sim/v2
+regime_name: v2_layers_clearance
 
 grid:
   H: 64
@@ -19,3 +19,9 @@ boundary:
   bottom: sink
   sides: neumann
   top_offpatch_mode: neumann
+
+layers:
+  # test example: 3 layers
+  layer_rows: [8, 20, 36]
+  D_values: [1.0, 0.2, 0.05]
+  k_dermis: 0.0

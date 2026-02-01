@@ -1,0 +1,30 @@
+seed: 123
+output_dir: outputs/sim/v3
+regime_name: v3_patch_variations
+
+grid:
+  H: 64
+  W: 64
+  dx: 0.01
+  dt: 0.000025
+  T: 1.0
+  save_every: 10
+
+boundary:
+  mode: time_decay
+  C0: 1.0
+  decay_rate: 0.5
+  patch_width: 0.5
+  patch_offset: center
+  bottom: sink
+  sides: neumann
+  top_offpatch_mode: neumann
+
+heterogeneity:
+  # iid noise on D field
+  mode: iid
+  sigma: 0.05
+  seed: 123
+  D_min: 0.001
+  D_max: 1.0
+  steps: 5

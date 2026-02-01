@@ -29,3 +29,40 @@ def make_patch_mask(H, W, width_frac, offset):
     end = start + width
     mask[0, start:end] = True
     return mask
+
+
+# donor concentration over time
+# modes: infinite_dose or time_decay
+
+def patch_concentration(t, mode, C0, decay_rate):
+    if mode == "time_decay":
+        return C0 * np.exp(-decay_rate * t)
+    return C0
+
+
+# apply basic boundary conditions
+# patch on top row gets fixed C
+# off-patch top gets neumann copy
+# bottom is sink if True
+# sides are neumann if True
+
+def apply_bc(C, mask, Cpatch, bottom_sink=True, neumann_sides=True, top_offpatch="neumann"):
+    mask_row = mask[0]
+
+    # top on patch
+    C[mask] = Cpatch
+
+    # top off patch
+    if top_offpatch == "neumann":
+        C[0, ~mask_row] = C[1, ~mask_row]
+
+    # bottom sink
+    if bottom_sink:
+        C[-1, :] = 0.0
+
+    # sides neumann
+    if neumann_sides:
+        C[:, 0] = C[:, 1]
+        C[:, -1] = C[:, -2]
+
+    return C
