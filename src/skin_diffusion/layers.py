@@ -53,3 +53,14 @@ def build_D_field(H, W, layer_id, D_values):
     # build D in 2D from layer values
     D_y = assign_layer_field(layer_id, D_values)
     return expand_to_2d(D_y, W)
+
+
+# build k field from dermis rows
+# dermis_rows is number of rows at bottom
+
+def build_k_field(H, W, dermis_rows, k_dermis):
+    # start with zeros
+    k_y = np.zeros(H, dtype=float)
+    if dermis_rows > 0:
+        k_y[H - dermis_rows :] = float(k_dermis)
+    return expand_to_2d(k_y, W)

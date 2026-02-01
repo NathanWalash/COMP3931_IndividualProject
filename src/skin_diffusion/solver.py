@@ -22,7 +22,13 @@ def allocate_snapshots(Tsave, H, W):
     return np.zeros((Tsave, H, W), dtype=float)
 
 
-def simulate_v1_no_bc(C0, D_scalar, grid_cfg, compute_diagnostics=False):
+def apply_reaction(C, k, dt):
+    # simple explicit reaction step
+    # this is the k*C loss term
+    return C - dt * k * C
+
+
+def simulate_v1_no_bc(C0, D_scalar, grid_cfg, k=None):
     # bc means boundary conditions
     # simple explicit loop without BCs
     t_all, t_save_idx, t_save = create_time(
@@ -32,6 +38,11 @@ def simulate_v1_no_bc(C0, D_scalar, grid_cfg, compute_diagnostics=False):
     # check stability once
     dt_max = stability_limit_diffusion(D_scalar, grid_cfg.dx)
     check_stability(grid_cfg.dt, dt_max, mode="warn")
+
+    # reaction stability
+    if k is not None:
+        kmax = float(np.max(k))
+        check_reaction_stability(grid_cfg.dt, kmax, mode="warn")
 
     # start from the initial state
     C = C0.copy()
@@ -45,6 +56,7 @@ def simulate_v1_no_bc(C0, D_scalar, grid_cfg, compute_diagnostics=False):
     save_i = 0
     steps = tqdm(range(len(t_all)), desc="simulate_v1_no_bc")
     for step in steps:
+        # snapshot before step
         if step % grid_cfg.save_every == 0:
             # store a snapshot
             C_snap[save_i] = C
@@ -54,15 +66,15 @@ def simulate_v1_no_bc(C0, D_scalar, grid_cfg, compute_diagnostics=False):
             # one diffusion step
             C = step_varD_conservative(C, D, grid_cfg.dt, grid_cfg.dx)
 
-    if compute_diagnostics:
-        diagnostics = diagnostics_over_time(C_snap, grid_cfg.dx)
-    else:
-        diagnostics = None
+            # reaction step (optional)
+            if k is not None:
+                C = apply_reaction(C, k, grid_cfg.dt)
 
+    diagnostics = diagnostics_over_time(C_snap, grid_cfg.dx)
     return C_snap, t_save, diagnostics
 
 
-def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, compute_diagnostics=False):
+def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, k=None):
     # full loop with BCs
     t_all, t_save_idx, t_save = create_time(
         grid_cfg.T, grid_cfg.dt, grid_cfg.save_every
@@ -71,6 +83,11 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, compute_diagnostics=
     # check stability once
     dt_max = stability_limit_diffusion(D_scalar, grid_cfg.dx)
     check_stability(grid_cfg.dt, dt_max, mode="warn")
+
+    # reaction stability
+    if k is not None:
+        kmax = float(np.max(k))
+        check_reaction_stability(grid_cfg.dt, kmax, mode="warn")
 
     # start from the initial state
     C = C0.copy()
@@ -84,6 +101,7 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, compute_diagnostics=
     save_i = 0
     steps = tqdm(range(len(t_all)), desc="simulate_v1")
     for step in steps:
+        # current time
         t = t_all[step]
 
         # patch value for this time
@@ -99,6 +117,7 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, compute_diagnostics=
             top_offpatch=bc_cfg.top_offpatch_mode,
         )
 
+        # snapshot before step
         if step % grid_cfg.save_every == 0:
             # store a snapshot
             C_snap[save_i] = C
@@ -107,6 +126,10 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, compute_diagnostics=
         if step < len(t_all) - 1:
             # one diffusion step
             C = step_varD_conservative(C, D, grid_cfg.dt, grid_cfg.dx)
+
+            # reaction step (optional)
+            if k is not None:
+                C = apply_reaction(C, k, grid_cfg.dt)
 
         # re-apply BCs after step
         apply_bc(
@@ -118,11 +141,7 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, compute_diagnostics=
             top_offpatch=bc_cfg.top_offpatch_mode,
         )
 
-    if compute_diagnostics:
-        diagnostics = diagnostics_over_time(C_snap, grid_cfg.dx)
-    else:
-        diagnostics = None
-
+    diagnostics = diagnostics_over_time(C_snap, grid_cfg.dx)
     return C_snap, t_save, diagnostics
 
 
