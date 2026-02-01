@@ -6,11 +6,12 @@ import numpy as np
 
 from skin_diffusion.bc import make_patch_mask
 from skin_diffusion.config import load_config
+from skin_diffusion.layers import apply_iid_heterogeneity
 from skin_diffusion.solver import init_state, simulate_v1
 from skin_diffusion.utils import ensure_dir
 
 
-def run_case(cfg, patch_width, patch_offset):
+def run_case(cfg, patch_width, patch_offset, D_field):
     # set patch settings for this run
     cfg.boundary.patch_width = patch_width
     cfg.boundary.patch_offset = patch_offset
@@ -26,7 +27,7 @@ def run_case(cfg, patch_width, patch_offset):
     # run sim
     C0 = init_state(cfg.grid.H, cfg.grid.W)
     C_snap, t_save, diagnostics = simulate_v1(
-        C0, 1.0, cfg.grid, cfg.boundary, patch_mask, k=None
+        C0, 1.0, cfg.grid, cfg.boundary, patch_mask, k=None, D_field=D_field
     )
 
     # return final field
@@ -75,23 +76,38 @@ def main():
     widths = [1.0, 0.5, 0.25]
     offsets = ["left", "center", "right"]
 
+    # base D field (start with constant)
+    D_field = np.full((cfg.grid.H, cfg.grid.W), 1.0, dtype=float)
+
+    # optional iid heterogeneity
+    het_cfg = cfg.extras.get("heterogeneity", {})
+    sigma = float(het_cfg.get("sigma", 0.0))
+    seed = int(het_cfg.get("seed", cfg.seed))
+    D_min = float(het_cfg.get("D_min", 0.001))
+    D_max = float(het_cfg.get("D_max", 1.0))
+    if sigma > 0.0:
+        D_field = apply_iid_heterogeneity(D_field, sigma, seed, D_min, D_max)
+
+    # save D field view
+    save_single_heatmap(fig_dir / "D_field.png", D_field, "D field")
+
     # run each width
     for width in widths:
         if width == 1.0:
             # full-width patch does not need left/center/right
-            field = run_case(cfg, width, "center")
+            field = run_case(cfg, width, "center", D_field)
             name = "patch_width_1.00_center.png"
             save_single_heatmap(fig_dir / name, field, "patch width 1.0 (center)")
         else:
             # save one image per offset
             for offset in offsets:
-                field = run_case(cfg, width, offset)
+                field = run_case(cfg, width, offset, D_field)
                 name = f"patch_width_{width:.2f}_{offset}.png"
                 title = f"patch width {width} ({offset})"
                 save_single_heatmap(fig_dir / name, field, title)
 
     # lateral diffusion for small patch
-    field_small = run_case(cfg, 0.25, "center")
+    field_small = run_case(cfg, 0.25, "center", D_field)
     depth_idx = cfg.grid.H // 4
     save_lateral_profile(fig_dir / "lateral_profile_small_patch.png", field_small, depth_idx)
 

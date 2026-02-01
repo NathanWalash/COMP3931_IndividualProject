@@ -19,3 +19,10 @@ boundary:
   bottom: sink
   sides: neumann
   top_offpatch_mode: neumann
+
+heterogeneity:
+  # iid noise on D field
+  sigma: 0.05
+  seed: 123
+  D_min: 0.001
+  D_max: 1.0

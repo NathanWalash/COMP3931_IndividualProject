@@ -28,7 +28,7 @@ def apply_reaction(C, k, dt):
     return C - dt * k * C
 
 
-def simulate_v1_no_bc(C0, D_scalar, grid_cfg, k=None):
+def simulate_v1_no_bc(C0, D_scalar, grid_cfg, k=None, D_field=None):
     # bc means boundary conditions
     # simple explicit loop without BCs
     t_all, t_save_idx, t_save = create_time(
@@ -49,8 +49,11 @@ def simulate_v1_no_bc(C0, D_scalar, grid_cfg, k=None):
     # allocate saved frames
     C_snap = allocate_snapshots(len(t_save), grid_cfg.H, grid_cfg.W)
 
-    # constant D field for varD step
-    D = np.full((grid_cfg.H, grid_cfg.W), D_scalar, dtype=float)
+    # use provided D field or constant D
+    if D_field is None:
+        D = np.full((grid_cfg.H, grid_cfg.W), D_scalar, dtype=float)
+    else:
+        D = D_field
 
     # save every save_every steps
     save_i = 0
@@ -74,7 +77,7 @@ def simulate_v1_no_bc(C0, D_scalar, grid_cfg, k=None):
     return C_snap, t_save, diagnostics
 
 
-def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, k=None):
+def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, k=None, D_field=None):
     # full loop with BCs
     t_all, t_save_idx, t_save = create_time(
         grid_cfg.T, grid_cfg.dt, grid_cfg.save_every
@@ -94,8 +97,11 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, k=None):
     # allocate saved frames
     C_snap = allocate_snapshots(len(t_save), grid_cfg.H, grid_cfg.W)
 
-    # constant D field for varD step
-    D = np.full((grid_cfg.H, grid_cfg.W), D_scalar, dtype=float)
+    # use provided D field or constant D
+    if D_field is None:
+        D = np.full((grid_cfg.H, grid_cfg.W), D_scalar, dtype=float)
+    else:
+        D = D_field
 
     # save every save_every steps
     save_i = 0

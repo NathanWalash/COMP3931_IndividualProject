@@ -64,3 +64,17 @@ def build_k_field(H, W, dermis_rows, k_dermis):
     if dermis_rows > 0:
         k_y[H - dermis_rows :] = float(k_dermis)
     return expand_to_2d(k_y, W)
+
+
+# apply iid noise to a base D field
+# sigma is the noise size
+# clip keeps values in a safe range
+
+def apply_iid_heterogeneity(D_base, sigma, seed, D_min, D_max):
+    rng = np.random.default_rng(seed)
+    noise = rng.normal(0.0, sigma, size=D_base.shape)
+
+    # add noise and clip
+    D_het = D_base + noise
+    D_het = np.clip(D_het, D_min, D_max)
+    return D_het
