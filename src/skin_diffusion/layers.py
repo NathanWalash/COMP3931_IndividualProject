@@ -45,3 +45,11 @@ def assign_layer_field(layer_id, values):
 def expand_to_2d(field_y, W):
     # repeat across x
     return np.tile(field_y[:, None], (1, W))
+
+
+# build D field from layer values
+
+def build_D_field(H, W, layer_id, D_values):
+    # build D in 2D from layer values
+    D_y = assign_layer_field(layer_id, D_values)
+    return expand_to_2d(D_y, W)
