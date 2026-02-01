@@ -2,7 +2,12 @@
 from tqdm import tqdm
 
 from skin_diffusion.bc import apply_bc, patch_concentration
-from skin_diffusion.checks import check_reaction_stability, check_stability, stability_limit_diffusion
+from skin_diffusion.checks import (
+    diagnostics_over_time,
+    check_reaction_stability,
+    check_stability,
+    stability_limit_diffusion,
+)
 from skin_diffusion.grid import create_time
 from skin_diffusion.operators import step_constant_D, step_varD_conservative
 
@@ -17,7 +22,7 @@ def allocate_snapshots(Tsave, H, W):
     return np.zeros((Tsave, H, W), dtype=float)
 
 
-def simulate_v1_no_bc(C0, D_scalar, grid_cfg):
+def simulate_v1_no_bc(C0, D_scalar, grid_cfg, compute_diagnostics=False):
     # bc means boundary conditions
     # simple explicit loop without BCs
     t_all, t_save_idx, t_save = create_time(
@@ -49,10 +54,15 @@ def simulate_v1_no_bc(C0, D_scalar, grid_cfg):
             # one diffusion step
             C = step_varD_conservative(C, D, grid_cfg.dt, grid_cfg.dx)
 
-    return C_snap, t_save
+    if compute_diagnostics:
+        diagnostics = diagnostics_over_time(C_snap, grid_cfg.dx)
+    else:
+        diagnostics = None
+
+    return C_snap, t_save, diagnostics
 
 
-def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask):
+def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, compute_diagnostics=False):
     # full loop with BCs
     t_all, t_save_idx, t_save = create_time(
         grid_cfg.T, grid_cfg.dt, grid_cfg.save_every
@@ -108,7 +118,12 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask):
             top_offpatch=bc_cfg.top_offpatch_mode,
         )
 
-    return C_snap, t_save
+    if compute_diagnostics:
+        diagnostics = diagnostics_over_time(C_snap, grid_cfg.dx)
+    else:
+        diagnostics = None
+
+    return C_snap, t_save, diagnostics
 
 
 def compute_stability_info(D, k, grid_cfg):

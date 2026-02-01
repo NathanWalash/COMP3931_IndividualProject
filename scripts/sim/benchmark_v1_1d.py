@@ -44,7 +44,9 @@ def main():
     # run sim
     C0 = init_state(cfg.grid.H, cfg.grid.W)
     D_scalar = 1.0
-    C_snap, t_save = simulate_v1(C0, D_scalar, cfg.grid, cfg.boundary, patch_mask)
+    C_snap, t_save, _ = simulate_v1(
+        C0, D_scalar, cfg.grid, cfg.boundary, patch_mask, compute_diagnostics=False
+    )
 
     # compare profiles at a few times
     # we pick start, middle, end of the run

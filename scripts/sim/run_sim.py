@@ -96,9 +96,13 @@ def main():
     C0 = init_state(cfg.grid.H, cfg.grid.W)
     D_scalar = 1.0
     if args.no_bc:
-        C_snap, t_save = simulate_v1_no_bc(C0, D_scalar, cfg.grid)
+        C_snap, t_save, diagnostics = simulate_v1_no_bc(
+            C0, D_scalar, cfg.grid, compute_diagnostics=True
+        )
     else:
-        C_snap, t_save = simulate_v1(C0, D_scalar, cfg.grid, cfg.boundary, patch_mask)
+        C_snap, t_save, diagnostics = simulate_v1(
+            C0, D_scalar, cfg.grid, cfg.boundary, patch_mask, compute_diagnostics=True
+        )
 
     # compute stability info
     D_field = np.full((cfg.grid.H, cfg.grid.W), D_scalar, dtype=float)
@@ -121,6 +125,11 @@ def main():
     # save metadata
     meta_path = out_dir / "meta.json"
     write_json(meta_path, meta)
+
+    # save diagnostics if available
+    if diagnostics is not None:
+        diag_path = out_dir / "diagnostics.json"
+        write_json(diag_path, diagnostics)
 
     if args.print_meta:
         print(meta)

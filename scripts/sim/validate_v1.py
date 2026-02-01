@@ -42,7 +42,9 @@ def main():
     # run sim (with BC)
     C0 = init_state(cfg.grid.H, cfg.grid.W)
     D_scalar = 1.0
-    C_snap, t_save = simulate_v1(C0, D_scalar, cfg.grid, cfg.boundary, patch_mask)
+    C_snap, t_save, diagnostics = simulate_v1(
+        C0, D_scalar, cfg.grid, cfg.boundary, patch_mask, compute_diagnostics=True
+    )
 
     # save fields for later plots/analysis
     fields_path = out_dir / "fields.npz"
@@ -62,6 +64,11 @@ def main():
     }
     meta_path = out_dir / "meta.json"
     write_json(meta_path, meta)
+
+    # save diagnostics if available
+    if diagnostics is not None:
+        diag_path = out_dir / "diagnostics.json"
+        write_json(diag_path, diagnostics)
 
     # pick 3 times to plot
     idxs = [0, len(t_save) // 2, len(t_save) - 1]
