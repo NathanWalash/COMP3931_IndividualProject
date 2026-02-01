@@ -78,3 +78,26 @@ def apply_iid_heterogeneity(D_base, sigma, seed, D_min, D_max):
     D_het = D_base + noise
     D_het = np.clip(D_het, D_min, D_max)
     return D_het
+
+
+# simple box blur for correlation
+# repeats a few times to smooth noise
+
+def apply_correlated_heterogeneity(D_base, sigma, seed, D_min, D_max, steps):
+    rng = np.random.default_rng(seed)
+    noise = rng.normal(0.0, sigma, size=D_base.shape)
+
+    # start from noise then smooth
+    field = noise.copy()
+    for _ in range(int(steps)):
+        # 5-point box blur with padding
+        up = np.roll(field, -1, axis=0)
+        down = np.roll(field, 1, axis=0)
+        left = np.roll(field, -1, axis=1)
+        right = np.roll(field, 1, axis=1)
+        field = (field + up + down + left + right) / 5.0
+
+    # add noise to base and clip
+    D_het = D_base + field
+    D_het = np.clip(D_het, D_min, D_max)
+    return D_het

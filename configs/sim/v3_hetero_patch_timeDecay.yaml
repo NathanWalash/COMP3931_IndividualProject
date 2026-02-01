@@ -22,7 +22,9 @@ boundary:
 
 heterogeneity:
   # iid noise on D field
+  mode: iid
   sigma: 0.05
   seed: 123
   D_min: 0.001
   D_max: 1.0
+  steps: 5

@@ -6,7 +6,7 @@ import numpy as np
 
 from skin_diffusion.bc import make_patch_mask
 from skin_diffusion.config import load_config
-from skin_diffusion.layers import apply_iid_heterogeneity
+from skin_diffusion.layers import apply_correlated_heterogeneity, apply_iid_heterogeneity
 from skin_diffusion.solver import init_state, simulate_v1
 from skin_diffusion.utils import ensure_dir
 
@@ -85,8 +85,15 @@ def main():
     seed = int(het_cfg.get("seed", cfg.seed))
     D_min = float(het_cfg.get("D_min", 0.001))
     D_max = float(het_cfg.get("D_max", 1.0))
+    mode = het_cfg.get("mode", "iid")
+    steps = int(het_cfg.get("steps", 5))
     if sigma > 0.0:
-        D_field = apply_iid_heterogeneity(D_field, sigma, seed, D_min, D_max)
+        if mode == "correlated":
+            D_field = apply_correlated_heterogeneity(
+                D_field, sigma, seed, D_min, D_max, steps
+            )
+        else:
+            D_field = apply_iid_heterogeneity(D_field, sigma, seed, D_min, D_max)
 
     # save D field view
     save_single_heatmap(fig_dir / "D_field.png", D_field, "D field")
