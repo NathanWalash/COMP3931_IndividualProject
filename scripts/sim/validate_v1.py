@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
-from skin_diffusion.bc import make_patch_mask
+from skin_diffusion.bc import make_patch_mask, patch_concentration
 from skin_diffusion.config import load_config
 from skin_diffusion.solver import init_state, simulate_v1
 from skin_diffusion.utils import ensure_dir, write_json
@@ -69,6 +69,22 @@ def main():
     if diagnostics is not None:
         diag_path = out_dir / "diagnostics.json"
         write_json(diag_path, diagnostics)
+
+    # save patch concentration over saved times
+    cpatch_curve = []
+    for t in t_save:
+        cpatch_curve.append(
+            float(
+                patch_concentration(
+                    float(t),
+                    cfg.boundary.mode,
+                    cfg.boundary.C0,
+                    cfg.boundary.decay_rate,
+                )
+            )
+        )
+    bc_path = out_dir / "bc.json"
+    write_json(bc_path, {"t": t_save.tolist(), "Cpatch": cpatch_curve})
 
     # pick 3 times to plot
     idxs = [0, len(t_save) // 2, len(t_save) - 1]

@@ -4,11 +4,12 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from skin_diffusion.bc import make_patch_mask
+from skin_diffusion.bc import make_patch_mask, patch_concentration
 from skin_diffusion.config import load_config
+from skin_diffusion.grid import create_time
 from skin_diffusion.layers import apply_correlated_heterogeneity, apply_iid_heterogeneity
 from skin_diffusion.solver import init_state, simulate_v1
-from skin_diffusion.utils import ensure_dir
+from skin_diffusion.utils import ensure_dir, write_json
 
 
 def run_case(cfg, patch_width, patch_offset, D_field):
@@ -72,6 +73,10 @@ def main():
     fig_dir = Path("figures") / "validation" / "v3"
     ensure_dir(fig_dir)
 
+    # output data folder
+    out_dir = Path(cfg.output_dir)
+    ensure_dir(out_dir)
+
     # patch options
     widths = [1.0, 0.5, 0.25]
     offsets = ["left", "center", "right"]
@@ -117,6 +122,25 @@ def main():
     field_small = run_case(cfg, 0.25, "center", D_field)
     depth_idx = cfg.grid.H // 4
     save_lateral_profile(fig_dir / "lateral_profile_small_patch.png", field_small, depth_idx)
+
+    # save patch concentration over saved times
+    t_all, t_save_idx, t_save = create_time(
+        cfg.grid.T, cfg.grid.dt, cfg.grid.save_every
+    )
+    cpatch_curve = []
+    for t in t_save:
+        cpatch_curve.append(
+            float(
+                patch_concentration(
+                    float(t),
+                    cfg.boundary.mode,
+                    cfg.boundary.C0,
+                    cfg.boundary.decay_rate,
+                )
+            )
+        )
+    bc_path = out_dir / "bc.json"
+    write_json(bc_path, {"t": t_save.tolist(), "Cpatch": cpatch_curve})
 
     print("saved figures in:", fig_dir)
 

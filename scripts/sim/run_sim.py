@@ -126,6 +126,22 @@ def main():
     meta_path = out_dir / "meta.json"
     write_json(meta_path, meta)
 
+    # save patch concentration over saved times
+    cpatch_curve = []
+    for t in t_save:
+        cpatch_curve.append(
+            float(
+                patch_concentration(
+                    float(t),
+                    cfg.boundary.mode,
+                    cfg.boundary.C0,
+                    cfg.boundary.decay_rate,
+                )
+            )
+        )
+    bc_path = out_dir / "bc.json"
+    write_json(bc_path, {"t": t_save.tolist(), "Cpatch": cpatch_curve})
+
     # save diagnostics if available
     if diagnostics is not None:
         diag_path = out_dir / "diagnostics.json"
