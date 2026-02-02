@@ -5,9 +5,9 @@ import numpy as np
 # plot a heatmap of a 2D field
 # bright = high concentration
 
-def plot_heatmap(C, save_path, title=None):
+def plot_heatmap(C, save_path, title=None, vmin=None, vmax=None):
     plt.figure()
-    plt.imshow(C, origin="upper", aspect="auto")
+    plt.imshow(C, origin="upper", aspect="auto", vmin=vmin, vmax=vmax)
     plt.colorbar()
     if title:
         plt.title(title)

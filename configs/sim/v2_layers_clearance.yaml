@@ -23,5 +23,5 @@ boundary:
 layers:
   # test example: 3 layers
   layer_rows: [8, 20, 36]
-  D_values: [1.0, 0.2, 0.05]
-  k_dermis: 0.0
+  D_values: [1.0, 0.05, 0.005]
+  k_dermis: 0.2

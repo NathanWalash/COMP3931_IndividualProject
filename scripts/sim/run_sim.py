@@ -1,16 +1,14 @@
 ﻿import argparse
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
-from skin_diffusion.bc import apply_bc, make_patch_mask, patch_concentration
-from skin_diffusion.checks import stability_limit_diffusion
 from skin_diffusion.config import load_config
 from skin_diffusion.grid import create_coords
 from skin_diffusion.operators import step_constant_D
-from skin_diffusion.solver import compute_stability_info, init_state, simulate_v1, simulate_v1_no_bc
-from skin_diffusion.utils import ensure_dir, set_seed, write_json
+from skin_diffusion.run_utils import run_simulation, save_run_outputs
+from skin_diffusion.solver import init_state, simulate_v1_no_bc
+from skin_diffusion.utils import ensure_dir, set_seed
 
 
 def _demo_step():
@@ -32,6 +30,9 @@ def _demo_step():
 def _demo_bc(cfg, patch_mask):
     # quick demo for BCs
     C = np.zeros((cfg.grid.H, cfg.grid.W), dtype=float)
+
+    # local import keeps CLI fast when demo_bc is unused
+    from skin_diffusion.bc import apply_bc, patch_concentration
 
     # build patch value at t=0
     Cpatch = patch_concentration(
@@ -81,83 +82,57 @@ def main():
     # build coords
     x, y = create_coords(cfg.grid.H, cfg.grid.W, cfg.grid.dx)
 
-    # make patch mask
-    patch_mask = make_patch_mask(
-        cfg.grid.H,
-        cfg.grid.W,
-        cfg.boundary.patch_width,
-        cfg.boundary.patch_offset,
-    )
-
     if args.demo_bc:
+        # demo uses a patch mask
+        from skin_diffusion.bc import make_patch_mask
+        patch_mask = make_patch_mask(
+            cfg.grid.H,
+            cfg.grid.W,
+            cfg.boundary.patch_width,
+            cfg.boundary.patch_offset,
+        )
         _demo_bc(cfg, patch_mask)
 
-    # init and run
+    # init state for prints
     C0 = init_state(cfg.grid.H, cfg.grid.W)
-    D_scalar = 1.0
+
     if args.no_bc:
+        # init and run without BCs
+        D_scalar = 1.0
         C_snap, t_save, diagnostics = simulate_v1_no_bc(
-            C0, D_scalar, cfg.grid, compute_diagnostics=True
+            C0, D_scalar, cfg.grid
         )
     else:
-        C_snap, t_save, diagnostics = simulate_v1(
-            C0, D_scalar, cfg.grid, cfg.boundary, patch_mask, compute_diagnostics=True
+        # full run via centralized runner
+        C_snap, t_save, D_field, k_field, patch_mask, diagnostics, metrics, stability_info = run_simulation(cfg)
+        save_run_outputs(
+            out_dir,
+            cfg,
+            C_snap,
+            t_save,
+            D_field,
+            k_field,
+            patch_mask,
+            diagnostics,
+            metrics,
+            stability_info,
         )
-
-    # compute stability info
-    D_field = np.full((cfg.grid.H, cfg.grid.W), D_scalar, dtype=float)
-    stability_info = compute_stability_info(D_field, None, cfg.grid)
-
-    # build simple metadata
-    meta = {}
-    meta["timestamp"] = datetime.now().isoformat()
-    meta["config"] = {
-        "seed": cfg.seed,
-        "output_dir": cfg.output_dir,
-        "regime_name": cfg.regime_name,
-        "grid": cfg.grid.__dict__,
-        "boundary": cfg.boundary.__dict__,
-        "extras": cfg.extras,
-    }
-    meta["t_save"] = t_save.tolist()
-    meta["stability"] = stability_info
-
-    # save metadata
-    meta_path = out_dir / "meta.json"
-    write_json(meta_path, meta)
-
-    # save patch concentration over saved times
-    cpatch_curve = []
-    for t in t_save:
-        cpatch_curve.append(
-            float(
-                patch_concentration(
-                    float(t),
-                    cfg.boundary.mode,
-                    cfg.boundary.C0,
-                    cfg.boundary.decay_rate,
-                )
-            )
-        )
-    bc_path = out_dir / "bc.json"
-    write_json(bc_path, {"t": t_save.tolist(), "Cpatch": cpatch_curve})
-
-    # save diagnostics if available
-    if diagnostics is not None:
-        diag_path = out_dir / "diagnostics.json"
-        write_json(diag_path, diagnostics)
 
     if args.print_meta:
-        print(meta)
+        meta_path = out_dir / "meta.json"
+        if meta_path.exists():
+            print(meta_path.read_text())
 
     print("x shape:", x.shape)
     print("y shape:", y.shape)
     print("t_save shape:", t_save.shape)
     print("C0 shape:", C0.shape)
     print("C_snap shape:", C_snap.shape)
-    print("patch_mask true count:", int(patch_mask.sum()))
+    if not args.no_bc:
+        print("patch_mask true count:", int(patch_mask.sum()))
     print("loaded config:", cfg.regime_name)
-    print("wrote:", meta_path)
+    if not args.no_bc:
+        print("wrote:", out_dir / "meta.json")
 
 
 if __name__ == "__main__":

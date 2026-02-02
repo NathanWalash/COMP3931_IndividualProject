@@ -41,7 +41,7 @@ def _run_case(cfg, H, W, dx, dt, save_every):
     C0 = init_state(grid.H, grid.W)
     D_scalar = 1.0
     C_snap, t_save, _ = simulate_v1(
-        C0, D_scalar, grid, cfg.boundary, patch_mask, compute_diagnostics=False
+        C0, D_scalar, grid, cfg.boundary, patch_mask
     )
 
     return C_snap, t_save
