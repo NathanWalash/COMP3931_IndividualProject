@@ -2,5 +2,6 @@
 matplotlib
 pyyaml
 tqdm
+scikit-learn
 # optional
 # pytest
