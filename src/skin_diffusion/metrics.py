@@ -28,19 +28,30 @@ def estimate_steady_state_flux(flux_curve, t, tail_fraction=0.2):
 
 
 def estimate_lag_time(flux_curve, t, tail_fraction=0.2):
-    # fit a line to the tail and find where it hits zero
+    # estimate lag time using cumulative mass (Q) vs time
+    # Q(t) should be linear at steady state: Q = J_ss * (t - Tlag)
     n = len(flux_curve)
     tail_count = max(2, int(n * tail_fraction))
-    flux_tail = flux_curve[-tail_count:]
     time_tail = t[-tail_count:]
 
-    # linear fit: J = slope*time + intercept
-    slope, intercept = np.polyfit(time_tail, flux_tail, 1)
-    if slope == 0:
+    # build cumulative mass curve Q(t) with simple trapezoid rule
+    # Q has same length as t
+    Q = np.zeros_like(t, dtype=float)
+    for i in range(1, len(t)):
+        dt = t[i] - t[i - 1]
+        Q[i] = Q[i - 1] + 0.5 * (flux_curve[i] + flux_curve[i - 1]) * dt
+
+    Q_tail = Q[-tail_count:]
+
+    # linear fit: Q = slope*time + intercept
+    slope, intercept = np.polyfit(time_tail, Q_tail, 1)
+    if slope <= 0:
         return None
 
     # lag time is the x-intercept
     lag_time = -intercept / slope
+    if lag_time < 0:
+        return None
     return float(lag_time)
 
 

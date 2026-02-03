@@ -4,6 +4,7 @@ from tqdm import tqdm
 from skin_diffusion.bc import apply_bc, patch_concentration
 from skin_diffusion.checks import (
     diagnostics_over_time,
+    assert_nonnegative,
     check_reaction_stability,
     check_stability,
     stability_limit_diffusion,
@@ -35,15 +36,6 @@ def simulate_v1_no_bc(C0, D_scalar, grid_cfg, k=None, D_field=None):
         grid_cfg.T, grid_cfg.dt, grid_cfg.save_every
     )
 
-    # check stability once
-    dt_max = stability_limit_diffusion(D_scalar, grid_cfg.dx)
-    check_stability(grid_cfg.dt, dt_max, mode="warn")
-
-    # reaction stability
-    if k is not None:
-        kmax = float(np.max(k))
-        check_reaction_stability(grid_cfg.dt, kmax, mode="warn")
-
     # start from the initial state
     C = C0.copy()
     # allocate saved frames
@@ -55,9 +47,19 @@ def simulate_v1_no_bc(C0, D_scalar, grid_cfg, k=None, D_field=None):
     else:
         D = D_field
 
+    # check stability once (use actual D field)
+    Dmax = float(np.max(D))
+    dt_max = stability_limit_diffusion(Dmax, grid_cfg.dx)
+    check_stability(grid_cfg.dt, dt_max, mode="warn")
+
+    # reaction stability
+    if k is not None:
+        kmax = float(np.max(k))
+        check_reaction_stability(grid_cfg.dt, kmax, mode="warn")
+
     # save every save_every steps
     save_i = 0
-    steps = tqdm(range(len(t_all)), desc="simulate_v1_no_bc")
+    steps = tqdm(range(len(t_all)), desc="simulate_no_bc")
     for step in steps:
         # snapshot before step
         if step % grid_cfg.save_every == 0:
@@ -74,23 +76,16 @@ def simulate_v1_no_bc(C0, D_scalar, grid_cfg, k=None, D_field=None):
                 C = apply_reaction(C, k, grid_cfg.dt)
 
     diagnostics = diagnostics_over_time(C_snap, grid_cfg.dx)
+    # warn if any negative values slipped in
+    assert_nonnegative(C_snap, tol=-1e-12, mode="warn")
     return C_snap, t_save, diagnostics
 
 
-def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, k=None, D_field=None):
+def simulate(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, k=None, D_field=None):
     # full loop with BCs
     t_all, t_save_idx, t_save = create_time(
         grid_cfg.T, grid_cfg.dt, grid_cfg.save_every
     )
-
-    # check stability once
-    dt_max = stability_limit_diffusion(D_scalar, grid_cfg.dx)
-    check_stability(grid_cfg.dt, dt_max, mode="warn")
-
-    # reaction stability
-    if k is not None:
-        kmax = float(np.max(k))
-        check_reaction_stability(grid_cfg.dt, kmax, mode="warn")
 
     # start from the initial state
     C = C0.copy()
@@ -103,9 +98,19 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, k=None, D_field=None
     else:
         D = D_field
 
+    # check stability once (use actual D field)
+    Dmax = float(np.max(D))
+    dt_max = stability_limit_diffusion(Dmax, grid_cfg.dx)
+    check_stability(grid_cfg.dt, dt_max, mode="warn")
+
+    # reaction stability
+    if k is not None:
+        kmax = float(np.max(k))
+        check_reaction_stability(grid_cfg.dt, kmax, mode="warn")
+
     # save every save_every steps
     save_i = 0
-    steps = tqdm(range(len(t_all)), desc="simulate_v1")
+    steps = tqdm(range(len(t_all)), desc="simulate")
     for step in steps:
         # current time
         t = t_all[step]
@@ -148,6 +153,8 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, k=None, D_field=None
         )
 
     diagnostics = diagnostics_over_time(C_snap, grid_cfg.dx)
+    # warn if any negative values slipped in
+    assert_nonnegative(C_snap, tol=-1e-12, mode="warn")
     return C_snap, t_save, diagnostics
 
 
