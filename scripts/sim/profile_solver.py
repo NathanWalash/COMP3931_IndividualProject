@@ -5,7 +5,7 @@ import numpy as np
 
 from skin_diffusion.bc import make_patch_mask
 from skin_diffusion.config import load_config, GridConfig
-from skin_diffusion.solver import init_state, simulate_v1
+from skin_diffusion.solver import init_state, simulate
 from skin_diffusion.utils import ensure_dir
 
 
@@ -37,7 +37,7 @@ def run_case(cfg, H, W, dx, dt, save_every):
     # run one sim and return the arrays
     C0 = init_state(grid.H, grid.W)
     D_scalar = 1.0
-    C_snap, t_save, _ = simulate_v1(
+    C_snap, t_save, _ = simulate(
         C0, D_scalar, grid, cfg.boundary, patch_mask
     )
 

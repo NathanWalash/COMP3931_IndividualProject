@@ -7,7 +7,7 @@ import numpy as np
 from skin_diffusion.bc import make_patch_mask
 from skin_diffusion.checks import l2_error
 from skin_diffusion.config import load_config
-from skin_diffusion.solver import init_state, simulate_v1
+from skin_diffusion.solver import init_state, simulate
 from skin_diffusion.utils import ensure_dir, write_json
 
 
@@ -44,7 +44,7 @@ def main():
     # run sim
     C0 = init_state(cfg.grid.H, cfg.grid.W)
     D_scalar = 1.0
-    C_snap, t_save, _ = simulate_v1(
+    C_snap, t_save, _ = simulate(
         C0, D_scalar, cfg.grid, cfg.boundary, patch_mask
     )
 

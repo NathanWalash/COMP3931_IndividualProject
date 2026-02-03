@@ -16,7 +16,7 @@ from skin_diffusion.metrics import (
     estimate_lag_time,
     estimate_steady_state_flux,
 )
-from skin_diffusion.solver import compute_stability_info, init_state, simulate_v1
+from skin_diffusion.solver import compute_stability_info, init_state, simulate
 from skin_diffusion.utils import ensure_dir, write_json
 
 
@@ -68,7 +68,7 @@ def run_simulation(cfg):
 
     # run sim
     C0 = init_state(cfg.grid.H, cfg.grid.W)
-    C_snap, t_save, diagnostics = simulate_v1(
+    C_snap, t_save, diagnostics = simulate(
         C0, 1.0, cfg.grid, cfg.boundary, patch_mask, k=k_field, D_field=D_field
     )
 
