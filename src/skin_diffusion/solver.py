@@ -57,7 +57,7 @@ def simulate_v1_no_bc(C0, D_scalar, grid_cfg, k=None, D_field=None):
 
     # save every save_every steps
     save_i = 0
-    steps = tqdm(range(len(t_all)), desc="simulate_v1_no_bc")
+    steps = tqdm(range(len(t_all)), desc="simulate_no_bc")
     for step in steps:
         # snapshot before step
         if step % grid_cfg.save_every == 0:
@@ -105,7 +105,7 @@ def simulate_v1(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, k=None, D_field=None
 
     # save every save_every steps
     save_i = 0
-    steps = tqdm(range(len(t_all)), desc="simulate_v1")
+    steps = tqdm(range(len(t_all)), desc="simulate")
     for step in steps:
         # current time
         t = t_all[step]

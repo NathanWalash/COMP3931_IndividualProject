@@ -1,6 +1,8 @@
 import numpy as np
 from pathlib import Path
 
+from tqdm import tqdm
+
 from sklearn.model_selection import train_test_split
 
 from skin_diffusion.metrics import compute_bottom_flux
@@ -172,6 +174,8 @@ def validate_run(out_dir):
 
 def stack_runs(runs):
     # stack fields from a list of run dicts
+    if len(runs) == 0:
+        return None
     C_list = []
     D_list = []
     k_list = []
@@ -187,6 +191,7 @@ def stack_runs(runs):
         t_list.append(r["t"])
         J_list.append(r["J"])
 
+    print("stacking arrays...")
     data = {}
     data["C_snap"] = np.stack(C_list, axis=0)
     data["D"] = np.stack(D_list, axis=0)
@@ -218,13 +223,22 @@ def split_indices(n, split_seed, train_frac, val_frac):
         val_idx = temp_idx
         test_idx = np.array([], dtype=int)
     else:
-        val_size = val_frac / (val_frac + test_frac)
-        val_idx, test_idx = train_test_split(
-            temp_idx,
-            train_size=val_size,
-            random_state=split_seed,
-            shuffle=True,
-        )
+        # handle tiny temp sets cleanly
+        if len(temp_idx) < 2:
+            if val_frac > 0.0:
+                val_idx = temp_idx
+                test_idx = np.array([], dtype=int)
+            else:
+                val_idx = np.array([], dtype=int)
+                test_idx = temp_idx
+        else:
+            val_size = val_frac / (val_frac + test_frac)
+            val_idx, test_idx = train_test_split(
+                temp_idx,
+                train_size=val_size,
+                random_state=split_seed,
+                shuffle=True,
+            )
 
     return train_idx, val_idx, test_idx
 
@@ -236,7 +250,7 @@ def assemble_processed_dataset(run_dirs, out_dir, split_seed=123, train_frac=0.8
 
     # load all runs
     runs = []
-    for rd in run_dirs:
+    for rd in tqdm(run_dirs, desc="loading runs"):
         runs.append(load_run_bundle(rd))
 
     # split indices
@@ -271,38 +285,47 @@ def assemble_processed_dataset(run_dirs, out_dir, split_seed=123, train_frac=0.8
         test_runs.append(runs[i])
 
     # stack into arrays
+    print("stack train split")
     train_data = stack_runs(train_runs)
+    print("stack val split")
     val_data = stack_runs(val_runs)
+    print("stack test split")
     test_data = stack_runs(test_runs)
 
     # save processed datasets
-    np.savez(
-        out_dir / "v3_train.npz",
-        C_snap=train_data["C_snap"],
-        D=train_data["D"],
-        k=train_data["k"],
-        patch_mask=train_data["patch_mask"],
-        t=train_data["t"],
-        J=train_data["J"],
-    )
-    np.savez(
-        out_dir / "v3_val.npz",
-        C_snap=val_data["C_snap"],
-        D=val_data["D"],
-        k=val_data["k"],
-        patch_mask=val_data["patch_mask"],
-        t=val_data["t"],
-        J=val_data["J"],
-    )
-    np.savez(
-        out_dir / "v3_test.npz",
-        C_snap=test_data["C_snap"],
-        D=test_data["D"],
-        k=test_data["k"],
-        patch_mask=test_data["patch_mask"],
-        t=test_data["t"],
-        J=test_data["J"],
-    )
+    if train_data is not None:
+        print("save train npz")
+        np.savez(
+            out_dir / "v3_train.npz",
+            C_snap=train_data["C_snap"],
+            D=train_data["D"],
+            k=train_data["k"],
+            patch_mask=train_data["patch_mask"],
+            t=train_data["t"],
+            J=train_data["J"],
+        )
+    if val_data is not None:
+        print("save val npz")
+        np.savez(
+            out_dir / "v3_val.npz",
+            C_snap=val_data["C_snap"],
+            D=val_data["D"],
+            k=val_data["k"],
+            patch_mask=val_data["patch_mask"],
+            t=val_data["t"],
+            J=val_data["J"],
+        )
+    if test_data is not None:
+        print("save test npz")
+        np.savez(
+            out_dir / "v3_test.npz",
+            C_snap=test_data["C_snap"],
+            D=test_data["D"],
+            k=test_data["k"],
+            patch_mask=test_data["patch_mask"],
+            t=test_data["t"],
+            J=test_data["J"],
+        )
 
     # write index
     index_path = out_dir / "index.json"
