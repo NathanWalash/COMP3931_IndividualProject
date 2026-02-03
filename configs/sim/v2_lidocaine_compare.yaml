@@ -1,0 +1,61 @@
+seed: 123
+output_dir: outputs/sim/v2_lit
+regime_name: v2_lidocaine_compare
+
+grid:
+  # dx in cm, time in seconds
+  H: 64
+  W: 64
+  dx: 0.0008        # 64*0.0008 = 0.0512 cm = 512 um
+  dt: 0.2           # safe with D ~ 1e-7..1e-8
+  T: 86400.0        # 24 h like the experiment
+  save_every: 300   # save every 5 min
+
+boundary:
+  mode: infinite_dose
+  C0: 1.0
+  decay_rate: 0.0
+  patch_width: 1.0
+  patch_offset: center
+  bottom: sink
+  sides: neumann
+  top_offpatch_mode: neumann
+
+layers:
+  # row counts top->bottom
+  # Make SC thin, viable epidermis thin-ish, dermis remainder:
+  layer_rows: [1, 9, 54]              # 1 row SC (~8 um), 9 rows VE (~72 um), dermis (~432 um)
+  D_values:  [1.3e-9, 1.0e-8, 2.0e-7]  # cm^2/s (small SC tweak to lower Tlag)
+  k_dermis: 0.0
+
+literature:
+  source: "Adamiak-Giera et al. (2023) Frontiers in Pharmacology"
+  drug: "Lidocaine hydrochloride (P-KET/LH/EtOH)"
+  P_target_cm_s: 7.38e-7       # 2.658e-3 cm/h converted to cm/s
+  Tlag_target_hours: 1.401     # hours
+  notes: "Human skin, Franz diffusion cell; vehicle includes ethanol"
+
+# The paper reports only macroscopic permeation outputs (KP and lag time),
+# not layer‑by‑layer diffusion coefficients. In this model, the unknowns
+# we *can* tune are the effective D values in each layer and the layer
+# thicknesses (row counts). We therefore calibrate D so that the simulated
+# permeability (P) and lag time (Tlag) match the reported values.
+#
+# Steps we took:
+# 1) Match total skin thickness to ~0.5 mm (paper uses 0.5 mm human skin).
+#    With H=64 and dx=0.0008 cm, total thickness is 0.0512 cm (~0.512 mm).
+# 2) Use a thin SC layer, since SC dominates resistance.
+#    We set layer_rows to [1, 9, 54] (SC/VE/dermis).
+# 3) Increase SC D slightly until P and Tlag are close to the paper.
+#    Final D values: [1.3e‑9, 1.0e‑8, 2.0e‑7] cm^2/s.
+#
+# The paper gives KP and LT; D is not reported. Calibrating D to match KP/LT
+# is standard inverse modelling (note to self - be important and explicit about this)
+#
+# Final output from this exact config (compare_literature run):
+# P_sim (cm/s): 8.0535e‑07
+# Tlag_sim (hours): 1.6744
+# P ratio (sim/target): 1.09
+# Tlag ratio (sim/target): 1.20
+# These are within ~10–20% of the reported values, which is defensible
+# for a simple layered diffusion model without explicit vehicle chemistry.
