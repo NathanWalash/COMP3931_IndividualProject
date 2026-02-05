@@ -1,6 +1,9 @@
-# Dataset Spec (run-level -> processed)
+# Dataset Spec (run bundle -> processed)
 
-## Run-level bundle (one simulation)
+This describes the files produced by dataset runs and the shapes you should
+expect when loading them.
+
+## Run bundle (one simulation)
 
 Each run folder contains:
 
@@ -9,8 +12,8 @@ Each run folder contains:
   - `D` shape: `[H, W]`
   - `k` shape: `[H, W]`
   - `patch_mask` shape: `[H, W]`
-  - `t` shape: `[T]`
-  - `J` shape: `[T]`
+  - `t` shape: `[T]` (saved times aligned with `C_snap`)
+  - `J` shape: `[T]` (bottom flux at saved times)
 
 - `meta.json`
   - grid info: `H`, `W`, `dx`, `dt`, `T`, `save_every`
@@ -21,6 +24,10 @@ Each run folder contains:
 - `metrics.json`
   - `P`, `Tlag`, `J_ss`
   - `J_min`, `J_max`, `J_mean`, `J_sum`
+
+Notes:
+- Runs created with `scripts/sim/run_sim.py` or the validation scripts may
+  include extra files such as `diagnostics.json` and `bc.json`.
 
 ---
 
@@ -54,5 +61,4 @@ The split uses a fixed random seed:
 - Test fraction: 0.1
 
 The split seed is stored in `index.json`.
-
 Splits are made with `scikit-learn` so the shuffle is repeatable.
