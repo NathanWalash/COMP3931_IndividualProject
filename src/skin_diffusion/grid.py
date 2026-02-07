@@ -10,7 +10,7 @@ def create_coords(H, W, dx):
 
 def create_time(T, dt, save_every):
     # make time arrays
-    n_steps = int(T / dt) + 1
+    n_steps = int(np.ceil(T / dt)) + 1
     t_all = np.arange(n_steps) * dt
     t_save_idx = np.arange(0, n_steps, save_every)
     t_save = t_all[t_save_idx]

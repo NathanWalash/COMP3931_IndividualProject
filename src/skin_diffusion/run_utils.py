@@ -108,15 +108,24 @@ def save_run_outputs(out_dir, cfg, C_snap, t_save, D_field, k_field, patch_mask,
     else:
         k_save = k_field
 
-    # save fields
+    # make sure we have J and t for a consistent run bundle
+    if metrics is None or "J" not in metrics:
+        J = compute_bottom_flux(C_snap, D_field, cfg.grid.dx)
+        t = t_save
+    else:
+        J = np.array(metrics["J"], dtype=float)
+        t = np.array(metrics.get("t", t_save), dtype=float)
+
+    # save fields (same schema as dataset runs)
     fields_path = out_dir / "fields.npz"
     np.savez(
         fields_path,
         C_snap=C_snap,
-        t_save=t_save,
         D=D_field,
         k=k_save,
         patch_mask=patch_mask,
+        t=t,
+        J=J,
     )
 
     # build metadata

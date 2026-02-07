@@ -117,6 +117,16 @@ def simulate(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, k=None, D_field=None):
 
         # patch value for this time
         Cpatch = patch_concentration(t, bc_cfg.mode, bc_cfg.C0, bc_cfg.decay_rate)
+        # use t+dt for post-step BC when donor decays in time
+        if bc_cfg.mode == "time_decay":
+            Cpatch_post = patch_concentration(
+                t + grid_cfg.dt,
+                bc_cfg.mode,
+                bc_cfg.C0,
+                bc_cfg.decay_rate,
+            )
+        else:
+            Cpatch_post = Cpatch
 
         # apply BCs before step
         apply_bc(
@@ -146,7 +156,7 @@ def simulate(C0, D_scalar, grid_cfg, bc_cfg, patch_mask, k=None, D_field=None):
         apply_bc(
             C,
             patch_mask,
-            Cpatch,
+            Cpatch_post,
             bottom_sink=(bc_cfg.bottom == "sink"),
             neumann_sides=(bc_cfg.sides == "neumann"),
             top_offpatch=bc_cfg.top_offpatch_mode,
