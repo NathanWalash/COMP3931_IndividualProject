@@ -104,6 +104,17 @@ Optional subdir:
 
 - `python -m pytest -q`
 
+
+## Notebooks
+
+The `notebooks/` folder provides runnable, narrative walkthroughs:
+
+- `01_quickstart_simulation.ipynb`: baseline run and inspection
+- `02_validation_v1_v2_v3.ipynb`: visual validation for V1/V2/V3
+- `03_convergence_and_1d_benchmark.ipynb`: grid refinement + analytic check
+- `04_literature_compare_lidocaine.ipynb`: compare to literature targets
+- `05_dataset_pipeline.ipynb`: build a small dataset and inspect splits
+
 ## Configs
 
 Main simulation configs:
@@ -128,4 +139,5 @@ Key sections:
 - `docs/dataset_spec.md`: run bundle + processed dataset schema
 - `docs/outputs_guide.md`: outputs and where they are written
 - `docs/config_guide.md`: config fields and options
+- `docs/notebooks_guide.md`: what each notebook demonstrates
 - `docs/tests_overview.md`: unit test summary
