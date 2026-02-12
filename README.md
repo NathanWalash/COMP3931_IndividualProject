@@ -10,12 +10,25 @@ A small 2D finite-difference skin diffusion simulator with config-driven regimes
 
 ## Quickstart
 
-1) Install deps:
+1) Create and activate a virtual environment (recommended):
+   - Windows PowerShell:
+     - `python -m venv .venv`
+     - `.\.venv\Scripts\Activate.ps1`
+2) Install deps and package:
+   - `python -m pip install --upgrade pip`
    - `pip install -r requirements.txt`
-2) Run a baseline simulation:
+   - `pip install -e .`
+3) Run a baseline simulation:
    - `python -m scripts.sim.run_sim --config configs/sim/v1_baseline.yaml`
-3) If Python cannot see `src/`, set the path:
-   - Windows PowerShell: `$env:PYTHONPATH="src"`
+
+Notes:
+- `pip install -e .` makes `skin_diffusion` importable without setting `PYTHONPATH`.
+- `requirements.txt` includes both runtime and test dependencies.
+
+Notebook kernel (VS Code/Jupyter):
+- Register this venv as a kernel:
+  - `python -m ipykernel install --user --name comp3931-venv --display-name "Python (.venv COMP3931)"`
+- In the notebook kernel picker, choose `Python (.venv COMP3931)`.
 
 ## Repo structure (high level)
 
@@ -102,6 +115,7 @@ Optional subdir:
 
 ### 8) Tests
 
+- `pip install -r requirements.txt`
 - `python -m pytest -q`
 
 

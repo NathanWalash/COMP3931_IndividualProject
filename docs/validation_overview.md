@@ -36,4 +36,5 @@ This is a short map of what to run and what each step proves.
 ## Unit tests
 
 - Run: `python -m pytest -q`
+  - setup: `pip install -r requirements.txt`
   - Covers BCs, operators, metrics, and stability logic.

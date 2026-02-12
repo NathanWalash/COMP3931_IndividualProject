@@ -4,6 +4,7 @@ This note explains what each test covers and why it exists.
 
 Run all tests:
 ```
+pip install -r requirements.txt
 python -m pytest -q
 ```
 

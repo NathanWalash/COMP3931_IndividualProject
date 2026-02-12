@@ -207,8 +207,12 @@ def split_indices(n, split_seed, train_frac, val_frac):
     # make a deterministic split
     idx = np.arange(n)
     test_frac = 1.0 - train_frac - val_frac
-    if test_frac < 0.0:
+    # tolerate tiny floating-point drift when fractions should sum to 1.0
+    eps = 1e-12
+    if test_frac < -eps:
         raise ValueError("train_frac + val_frac must be <= 1.0")
+    if abs(test_frac) <= eps:
+        test_frac = 0.0
 
     # split into train and temp (val+test)
     train_idx, temp_idx = train_test_split(
