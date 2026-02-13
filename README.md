@@ -88,15 +88,16 @@ Outputs:
 ### 5) Dataset pipeline (V3)
 
 Generate run folders:
-- `python -m scripts.sim.make_dataset --config configs/sim/v3_hetero_patch_timeDecay.yaml --num_runs 5`
+- `python -m scripts.sim.make_dataset --config configs/sim/v3_literature_dataset_spec.yaml --num_runs 5`
 
-Assemble train/val/test:
-- `python -m scripts.sim.assemble_dataset --config configs/sim/v3_hetero_patch_timeDecay.yaml`
+Assemble ID/OOD splits:
+- `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml`
 
 Outputs:
-- `data/processed/v3_train.npz`
-- `data/processed/v3_val.npz`
-- `data/processed/v3_test.npz`
+- `data/processed/id/v3_train.npz`
+- `data/processed/id/v3_val.npz`
+- `data/processed/id/v3_test.npz`
+- `data/processed/ood/v3_ood_primary.npz`
 - `data/processed/index.json`
 
 ### 6) Runtime profiling
@@ -136,6 +137,8 @@ Main simulation configs:
 - `configs/sim/v2_layers_clearance.yaml`
 - `configs/sim/v3_hetero_patch_timeDecay.yaml`
 - `configs/sim/v2_lidocaine_compare.yaml` (literature compare)
+- `configs/sim/v3_layers_literature.yaml`
+- `configs/sim/v3_literature_dataset_spec.yaml` (dataset spec)
 
 Key sections:
 - `grid`: `H, W, dx, dt, T, save_every`
