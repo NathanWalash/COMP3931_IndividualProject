@@ -1,0 +1,50 @@
+seed: 123
+output_dir: outputs/sim/v3_literature
+regime_name: v3_layers_literature
+
+grid:
+  # Same geometric scale as the literature-anchored V2 config.
+  H: 64
+  W: 64
+  dx: 0.0008
+  dt: 0.2
+  T: 86400.0
+  save_every: 300
+
+boundary:
+  # V3 keeps the decaying donor profile for richer dataset behavior.
+  mode: time_decay
+  C0: 1.0
+  decay_rate: 0.2
+  patch_width: 0.5
+  patch_offset: center
+  bottom: sink
+  sides: neumann
+  top_offpatch_mode: neumann
+
+layers:
+  # Top to bottom: SC, viable epidermis, dermis.
+  layer_rows: [1, 9, 54]
+
+  # Literature-constrained effective diffusion values (cm^2/s).
+  # Keep physiological ordering:
+  # SC lowest, viable epidermis middle, dermis highest.
+  D_values: [1.3e-9, 1.0e-8, 2.0e-7]
+
+  # Keep 0.0 as default until we lock a dermal clearance estimate from data.
+  k_dermis: 0.0
+
+heterogeneity:
+  # Add spatial variability on top of layered baseline.
+  mode: correlated
+  sigma: 0.05
+  seed: 123
+  D_min: 1.0e-10
+  D_max: 5.0e-7
+  steps: 5
+
+literature:
+  source_primary: "Adamiak-Giera et al. (2023), Front Pharmacol, doi:10.3389/fphar.2023.1157977"
+  source_context_1: "Prausnitz and Langer (2008), Nat Biotechnol, doi:10.1038/nbt.1504"
+  source_context_2: "Ellison et al. (2020), Toxicol In Vitro, doi:10.1016/j.tiv.2020.104990"
+  reference_doc: "docs/literature_layers_reference.md"

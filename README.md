@@ -10,12 +10,25 @@ A small 2D finite-difference skin diffusion simulator with config-driven regimes
 
 ## Quickstart
 
-1) Install deps:
+1) Create and activate a virtual environment (recommended):
+   - Windows PowerShell:
+     - `python -m venv .venv`
+     - `.\.venv\Scripts\Activate.ps1`
+2) Install deps and package:
+   - `python -m pip install --upgrade pip`
    - `pip install -r requirements.txt`
-2) Run a baseline simulation:
+   - `pip install -e .`
+3) Run a baseline simulation:
    - `python -m scripts.sim.run_sim --config configs/sim/v1_baseline.yaml`
-3) If Python cannot see `src/`, set the path:
-   - Windows PowerShell: `$env:PYTHONPATH="src"`
+
+Notes:
+- `pip install -e .` makes `skin_diffusion` importable without setting `PYTHONPATH`.
+- `requirements.txt` includes both runtime and test dependencies.
+
+Notebook kernel (VS Code/Jupyter):
+- Register this venv as a kernel:
+  - `python -m ipykernel install --user --name comp3931-venv --display-name "Python (.venv COMP3931)"`
+- In the notebook kernel picker, choose `Python (.venv COMP3931)`.
 
 ## Repo structure (high level)
 
@@ -75,15 +88,16 @@ Outputs:
 ### 5) Dataset pipeline (V3)
 
 Generate run folders:
-- `python -m scripts.sim.make_dataset --config configs/sim/v3_hetero_patch_timeDecay.yaml --num_runs 5`
+- `python -m scripts.sim.make_dataset --config configs/sim/v3_literature_dataset_spec.yaml --num_runs 5`
 
-Assemble train/val/test:
-- `python -m scripts.sim.assemble_dataset --config configs/sim/v3_hetero_patch_timeDecay.yaml`
+Assemble ID/OOD splits:
+- `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml`
 
 Outputs:
-- `data/processed/v3_train.npz`
-- `data/processed/v3_val.npz`
-- `data/processed/v3_test.npz`
+- `data/processed/id/v3_train.npz`
+- `data/processed/id/v3_val.npz`
+- `data/processed/id/v3_test.npz`
+- `data/processed/ood/v3_ood_primary.npz`
 - `data/processed/index.json`
 
 ### 6) Runtime profiling
@@ -102,6 +116,7 @@ Optional subdir:
 
 ### 8) Tests
 
+- `pip install -r requirements.txt`
 - `python -m pytest -q`
 
 
@@ -122,6 +137,8 @@ Main simulation configs:
 - `configs/sim/v2_layers_clearance.yaml`
 - `configs/sim/v3_hetero_patch_timeDecay.yaml`
 - `configs/sim/v2_lidocaine_compare.yaml` (literature compare)
+- `configs/sim/v3_layers_literature.yaml`
+- `configs/sim/v3_literature_dataset_spec.yaml` (dataset spec)
 
 Key sections:
 - `grid`: `H, W, dx, dt, T, save_every`
@@ -129,6 +146,11 @@ Key sections:
 - `layers`: per-layer D and clearance (V2)
 - `heterogeneity`: IID or correlated D noise (V3)
 - `literature`: target permeability/lag time (compare script)
+
+`boundary.patch_offset` supports:
+- `left`, `center`, `right`
+- numeric in `[0, 1]` for continuous lateral placement
+  - `0.0` = far left, `1.0` = far right
 
 ## Docs
 

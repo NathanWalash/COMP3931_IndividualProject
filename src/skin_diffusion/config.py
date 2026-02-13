@@ -20,7 +20,7 @@ class BoundaryConfig:
     C0: float
     decay_rate: float
     patch_width: float
-    patch_offset: str
+    patch_offset: object
     bottom: str
     sides: str
     top_offpatch_mode: str
@@ -51,12 +51,21 @@ def _grid_from_dict(d):
 
 def _boundary_from_dict(d):
     # read boundary section
+    patch_offset = d["patch_offset"]
+    if isinstance(patch_offset, str):
+        # allow numeric strings in YAML too
+        text = patch_offset.strip()
+        try:
+            patch_offset = float(text)
+        except ValueError:
+            patch_offset = text
+
     return BoundaryConfig(
         mode=str(d["mode"]),
         C0=float(d["C0"]),
         decay_rate=float(d["decay_rate"]),
         patch_width=float(d["patch_width"]),
-        patch_offset=str(d["patch_offset"]),
+        patch_offset=patch_offset,
         bottom=str(d["bottom"]),
         sides=str(d["sides"]),
         top_offpatch_mode=str(d["top_offpatch_mode"]),

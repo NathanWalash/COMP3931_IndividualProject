@@ -1,0 +1,103 @@
+# V3 literature-layer dataset spec for ML/PINN work.
+# This file keeps ranges and split rules explicit.
+
+version: v3_literature_dataset_v1
+description: "Locked dataset-v1 spec: literature-layered V3 backbone + model-space variability for black-box and PINN"
+
+base_config: configs/sim/v3_layers_literature.yaml
+output_root: outputs/sim/v3_literature_dataset_v1
+
+grid_policy:
+  mode: fixed_from_base_config
+  note: "H, W, dx, dt, T, save_every are fixed to the base V3 config"
+
+sampling:
+  num_runs:
+    laptop:
+      pilot: 100
+      full_min: 400
+      full_max: 800
+    lab_pc:
+      pilot: 200
+      full_min: 1500
+      full_max: 4000
+    cluster:
+      pilot: 300
+      full_min: 8000
+      full_max: 20000
+
+  parameters:
+    patch_width:
+      type: discrete
+      values: [0.25, 0.5, 1.0]
+    patch_offset:
+      type: conditional_uniform
+      min: 0.0
+      max: 1.0
+      rule_when_patch_width_1p0: 0.5
+    C0:
+      type: uniform
+      min: 0.8
+      max: 1.2
+    decay_rate:
+      type: uniform
+      min: 0.05
+      max: 0.3
+    heterogeneity_mode:
+      type: fixed
+      value: correlated
+    heterogeneity_sigma:
+      type: uniform
+      min: 0.01
+      max: 0.08
+    heterogeneity_steps:
+      type: randint_inclusive
+      min: 3
+      max: 9
+
+noise_policy:
+  input_variability: true
+  output_measurement_noise: false
+
+splits:
+  id:
+    train_frac: 0.70
+    val_frac: 0.15
+    test_frac: 0.15
+    split_seed: 321
+  ood_primary:
+    type: holdout
+    parameter: patch_width
+    value: 0.25
+
+targets:
+  primary:
+    - J_curve
+    - P
+    - Tlag
+    - J_ss
+  demonstration:
+    - full_field_single_run
+
+evaluation_metrics:
+  curve:
+    - MAE
+    - RMSE
+    - relative_l2
+    - integrated_absolute_error
+    - pearson_r
+  scalar:
+    - MAE
+    - RMSE
+    - relative_error_percent
+    - R2
+  pinn_physics:
+    - pde_residual
+    - bc_violation
+    - ic_violation
+    - nonnegativity_violation_rate
+  runtime:
+    - train_wall_clock
+    - inference_time_per_sample
+    - throughput_samples_per_second
+    - speedup_vs_simulator

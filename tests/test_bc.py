@@ -3,6 +3,35 @@ import numpy as np
 from skin_diffusion.bc import apply_bc, make_patch_mask
 
 
+def test_make_patch_mask_numeric_offset_edges():
+    # simple top-row mask checks for numeric offset mode
+    H = 4
+    W = 8
+    width_frac = 0.25  # width = 2 cells
+
+    mask_left = make_patch_mask(H, W, width_frac, 0.0)
+    mask_right = make_patch_mask(H, W, width_frac, 1.0)
+
+    # left edge
+    left_cols = np.where(mask_left[0])[0]
+    assert left_cols.tolist() == [0, 1]
+
+    # right edge
+    right_cols = np.where(mask_right[0])[0]
+    assert right_cols.tolist() == [6, 7]
+
+
+def test_make_patch_mask_string_offsets_still_work():
+    # old string behavior should remain unchanged
+    H = 4
+    W = 8
+    width_frac = 0.25  # width = 2 cells
+
+    mask_center = make_patch_mask(H, W, width_frac, "center")
+    center_cols = np.where(mask_center[0])[0]
+    assert center_cols.tolist() == [3, 4]
+
+
 def test_apply_bc_patch_and_sink():
     # small grid so it's easy to reason about
     H = 4
