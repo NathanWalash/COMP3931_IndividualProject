@@ -4,7 +4,7 @@
 # make patch mask on the top row
 # true means the donor patch sits here
 # width_frac is fraction of total width
-# offset is left/center/right
+# offset can be left/center/right or a number in [0, 1]
 
 def make_patch_mask(H, W, width_frac, offset):
     # start with all false
@@ -22,8 +22,24 @@ def make_patch_mask(H, W, width_frac, offset):
         start = 0
     elif offset == "right":
         start = W - width
-    else:
+    elif offset == "center":
         start = (W - width) // 2
+    else:
+        # numeric offset means patch center as a fraction across width
+        # 0.0 -> left edge, 1.0 -> right edge, clamp if slightly out of range
+        frac = float(offset)
+        if frac < 0.0:
+            frac = 0.0
+        if frac > 1.0:
+            frac = 1.0
+
+        center = int(round(frac * (W - 1)))
+        start = center - (width // 2)
+        if start < 0:
+            start = 0
+        max_start = W - width
+        if start > max_start:
+            start = max_start
 
     # mark patch on top row only
     end = start + width

@@ -144,6 +144,11 @@ Key sections:
 - `heterogeneity`: IID or correlated D noise (V3)
 - `literature`: target permeability/lag time (compare script)
 
+`boundary.patch_offset` supports:
+- `left`, `center`, `right`
+- numeric in `[0, 1]` for continuous lateral placement
+  - `0.0` = far left, `1.0` = far right
+
 ## Docs
 
 - `docs/metrics_process_overview.md`: pipeline summary and key metrics
