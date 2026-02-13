@@ -1,11 +1,11 @@
-# Dataset v1 spec for V3 ML/PINN work.
-# This file is a planning/spec config to keep ranges and split rules explicit.
+# V3 literature-layer dataset spec for ML/PINN work.
+# This file keeps ranges and split rules explicit.
 
-version: v3_dataset_v1
-description: "Locked dataset-v1 ranges and split policy for black-box + PINN comparison"
+version: v3_literature_dataset_v1
+description: "Locked dataset-v1 spec: literature-layered V3 backbone + model-space variability for black-box and PINN"
 
-base_config: configs/sim/v3_hetero_patch_timeDecay.yaml
-output_root: outputs/sim/v3_dataset_v1
+base_config: configs/sim/v3_layers_literature.yaml
+output_root: outputs/sim/v3_literature_dataset_v1
 
 grid_policy:
   mode: fixed_from_base_config
