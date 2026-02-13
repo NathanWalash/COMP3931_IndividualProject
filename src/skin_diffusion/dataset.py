@@ -1,5 +1,6 @@
 import numpy as np
 from pathlib import Path
+import json
 
 from tqdm import tqdm
 
@@ -34,8 +35,9 @@ def load_run_bundle(run_dir):
     # load one saved run from disk
     run_dir = Path(run_dir)
     fields = np.load(run_dir / "fields.npz")
-    meta = run_dir / "meta.json"
+    meta_path = run_dir / "meta.json"
     metrics = run_dir / "metrics.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
     data = {}
     data["C_snap"] = fields["C_snap"]
@@ -44,10 +46,28 @@ def load_run_bundle(run_dir):
     data["patch_mask"] = fields["patch_mask"]
     data["t"] = fields["t"]
     data["J"] = fields["J"]
-    data["meta_path"] = str(meta)
+    data["meta_path"] = str(meta_path)
     data["metrics_path"] = str(metrics)
+    data["meta"] = meta
+    # keep width available for OOD split decisions
+    data["patch_width"] = extract_patch_width(meta)
 
     return data
+
+
+def extract_patch_width(meta):
+    # support both meta styles used in this repo:
+    # 1) dataset bundle meta (boundary at top level)
+    # 2) run_sim style meta (nested under config)
+    if "boundary" in meta and "patch_width" in meta["boundary"]:
+        return float(meta["boundary"]["patch_width"])
+
+    config = meta.get("config", {})
+    boundary = config.get("boundary", {})
+    if "patch_width" in boundary:
+        return float(boundary["patch_width"])
+
+    raise KeyError("patch_width not found in run metadata")
 
 
 def save_run_bundle(out_dir, cfg, C_snap, t_save, D_field, k_field, patch_mask, metrics, stability_info):
@@ -203,8 +223,64 @@ def stack_runs(runs):
     return data
 
 
+def select_id_ood_runs(runs, ood_param="patch_width", ood_value=0.25, tol=1e-12):
+    # simple holdout split: runs matching ood_value go to OOD
+    if ood_param != "patch_width":
+        raise ValueError("Only patch_width OOD split is supported")
+
+    id_runs = []
+    ood_runs = []
+    for run in runs:
+        val = float(run["patch_width"])
+        if abs(val - float(ood_value)) <= tol:
+            ood_runs.append(run)
+        else:
+            id_runs.append(run)
+
+    return id_runs, ood_runs
+
+
+def save_split_npz(path, split_data):
+    # skip empty splits
+    if split_data is None:
+        return False
+
+    np.savez(
+        path,
+        C_snap=split_data["C_snap"],
+        D=split_data["D"],
+        k=split_data["k"],
+        patch_mask=split_data["patch_mask"],
+        t=split_data["t"],
+        J=split_data["J"],
+    )
+    return True
+
+
+def build_index_entries(runs):
+    # keep index plain and easy to read in json
+    entries = []
+    i = 0
+    for run in runs:
+        entry = {}
+        entry["row"] = i
+        entry["run_dir"] = str(Path(run["meta_path"]).parent)
+        entry["meta_path"] = run["meta_path"]
+        entry["metrics_path"] = run["metrics_path"]
+        entry["patch_width"] = float(run["patch_width"])
+        entries.append(entry)
+        i += 1
+    return entries
+
+
 def split_indices(n, split_seed, train_frac, val_frac):
     # make a deterministic split
+    if n < 0:
+        raise ValueError("n must be >= 0")
+
+    if n < 2:
+        raise ValueError("Need at least 2 samples to split")
+
     idx = np.arange(n)
     test_frac = 1.0 - train_frac - val_frac
     # tolerate tiny floating-point drift when fractions should sum to 1.0
@@ -236,10 +312,18 @@ def split_indices(n, split_seed, train_frac, val_frac):
                 val_idx = np.array([], dtype=int)
                 test_idx = temp_idx
         else:
-            val_size = val_frac / (val_frac + test_frac)
+            # use integer count for tiny temp splits to avoid float rounding issues
+            n_temp = len(temp_idx)
+            val_ratio = val_frac / (val_frac + test_frac)
+            n_val = int(round(val_ratio * n_temp))
+            if n_val < 1:
+                n_val = 1
+            if n_val >= n_temp:
+                n_val = n_temp - 1
+
             val_idx, test_idx = train_test_split(
                 temp_idx,
-                train_size=val_size,
+                train_size=n_val,
                 random_state=split_seed,
                 shuffle=True,
             )
@@ -334,5 +418,96 @@ def assemble_processed_dataset(run_dirs, out_dir, split_seed=123, train_frac=0.8
     # write index
     index_path = out_dir / "index.json"
     write_json(index_path, {"split_seed": split_seed, "index": index})
+
+    return out_dir
+
+
+def assemble_processed_dataset_with_ood(
+    run_dirs,
+    out_dir,
+    split_seed=321,
+    train_frac=0.7,
+    val_frac=0.15,
+    ood_param="patch_width",
+    ood_value=0.25,
+):
+    # build ID train/val/test plus OOD holdout set
+    # ID split is done only on non-ood runs
+    out_dir = Path(out_dir)
+    ensure_dir(out_dir)
+
+    # load all run bundles
+    runs = []
+    for run_dir in tqdm(run_dirs, desc="loading runs"):
+        runs.append(load_run_bundle(run_dir))
+
+    # hold out OOD runs first, then split ID runs
+    id_runs, ood_runs = select_id_ood_runs(runs, ood_param=ood_param, ood_value=ood_value)
+
+    train_idx, val_idx, test_idx = split_indices(
+        len(id_runs),
+        split_seed=split_seed,
+        train_frac=train_frac,
+        val_frac=val_frac,
+    )
+
+    train_runs = []
+    for i in train_idx:
+        train_runs.append(id_runs[i])
+
+    val_runs = []
+    for i in val_idx:
+        val_runs.append(id_runs[i])
+
+    test_runs = []
+    for i in test_idx:
+        test_runs.append(id_runs[i])
+
+    # stack splits into batched arrays
+    train_data = stack_runs(train_runs)
+    val_data = stack_runs(val_runs)
+    test_data = stack_runs(test_runs)
+    ood_data = stack_runs(ood_runs)
+
+    # save split files under id/ and ood/
+    id_dir = out_dir / "id"
+    ood_dir = out_dir / "ood"
+    ensure_dir(id_dir)
+    ensure_dir(ood_dir)
+
+    save_split_npz(id_dir / "v3_train.npz", train_data)
+    save_split_npz(id_dir / "v3_val.npz", val_data)
+    save_split_npz(id_dir / "v3_test.npz", test_data)
+    save_split_npz(ood_dir / "v3_ood_primary.npz", ood_data)
+
+    # keep root files so older notebooks/scripts still load as before
+    save_split_npz(out_dir / "v3_train.npz", train_data)
+    save_split_npz(out_dir / "v3_val.npz", val_data)
+    save_split_npz(out_dir / "v3_test.npz", test_data)
+
+    # write one full summary and split-specific index files
+    report = {}
+    report["split_seed"] = split_seed
+    report["train_frac"] = train_frac
+    report["val_frac"] = val_frac
+    report["ood"] = {"parameter": ood_param, "value": ood_value}
+    report["counts"] = {
+        "total": len(runs),
+        "id_total": len(id_runs),
+        "ood_total": len(ood_runs),
+        "train": len(train_runs),
+        "val": len(val_runs),
+        "test": len(test_runs),
+    }
+    report["id_index"] = {
+        "train": build_index_entries(train_runs),
+        "val": build_index_entries(val_runs),
+        "test": build_index_entries(test_runs),
+    }
+    report["ood_index"] = build_index_entries(ood_runs)
+
+    write_json(out_dir / "index.json", report)
+    write_json(id_dir / "index.json", report["id_index"])
+    write_json(ood_dir / "index.json", {"ood_index": report["ood_index"]})
 
     return out_dir

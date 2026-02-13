@@ -31,13 +31,18 @@ Notes:
 
 ---
 
-## Processed datasets (train/val/test)
+## Processed datasets (ID + OOD)
 
 Saved in `data/processed/`:
 
-- `v3_train.npz`
-- `v3_val.npz`
-- `v3_test.npz`
+- ID split folder:
+  - `id/v3_train.npz`
+  - `id/v3_val.npz`
+  - `id/v3_test.npz`
+- OOD folder:
+  - `ood/v3_ood_primary.npz`
+- Legacy compatibility copies are also saved at root:
+  - `v3_train.npz`, `v3_val.npz`, `v3_test.npz`
 
 Each file stores stacked arrays with shape `[N, ...]`:
 
@@ -48,7 +53,7 @@ Each file stores stacked arrays with shape `[N, ...]`:
 - `t` shape: `[N, T]`
 - `J` shape: `[N, T]`
 
-`index.json` maps each row to its run metadata path.
+`index.json` stores split settings, counts, and index maps.
 
 ---
 
@@ -56,9 +61,10 @@ Each file stores stacked arrays with shape `[N, ...]`:
 
 The split uses a fixed random seed:
 
-- Train fraction: 0.8
-- Val fraction: 0.1
-- Test fraction: 0.1
+- ID train fraction: 0.7
+- ID val fraction: 0.15
+- ID test fraction: 0.15
+- OOD holdout: `patch_width = 0.25`
 
 The split seed is stored in `index.json`.
 Splits are made with `scikit-learn` so the shuffle is repeatable.
