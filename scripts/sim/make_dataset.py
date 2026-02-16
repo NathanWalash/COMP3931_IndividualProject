@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--config", required=True)
     parser.add_argument("--num_runs", type=int, default=5)
     parser.add_argument("--seed_start", type=int, default=None)
+    parser.add_argument("--start_index", type=int, default=None)
     args = parser.parse_args()
 
     # support two inputs:
@@ -46,9 +47,29 @@ def main():
     else:
         cfg = load_config(args.config)
 
-    # each run is stored in output_dir/dataset/run_###
+    # Each generated run is stored as output_dir/dataset/run_###
     base_out = Path(cfg.output_dir) / "dataset"
     ensure_dir(base_out)
+
+    # Choose run index range.
+    # If start_index is not provided, append after existing run_### folders.
+    # lets generate batches without overwriting prior runs.
+    if args.start_index is None:
+        existing = sorted(base_out.glob("run_*"))
+        if existing:
+            max_idx = -1
+            for p in existing:
+                name = p.name
+                if name.startswith("run_"):
+                    try:
+                        max_idx = max(max_idx, int(name.split("_", 1)[1]))
+                    except ValueError:
+                        continue
+            start_index = max_idx + 1
+        else:
+            start_index = 0
+    else:
+        start_index = args.start_index
 
     if args.seed_start is None:
         seed_start = cfg.seed
@@ -67,7 +88,8 @@ def main():
             if "heterogeneity" in cfg.extras:
                 cfg.extras["heterogeneity"]["seed"] = cfg.seed
 
-        run_id = f"run_{i:03d}"
+        # Fixed run naming makes directory listing and batch organisation simple
+        run_id = f"run_{start_index + i:03d}"
         run_dir = base_out / run_id
         ensure_dir(run_dir)
 
