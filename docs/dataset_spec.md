@@ -53,7 +53,43 @@ Each file stores stacked arrays with shape `[N, ...]`:
 - `t` shape: `[N, T]`
 - `J` shape: `[N, T]`
 
+Lightweight assemble mode:
+- If `scripts/sim/assemble_dataset.py` is run with `--lightweight`,
+  split files store only `t` and `J`.
+- This mode is intended for large-run ML workflows where full fields are
+  not needed during assembly/export/training.
+
 `index.json` stores split settings, counts, and index maps.
+
+---
+
+## ML-ready export
+
+`scripts/sim/export_ml_dataset.py` creates:
+- `id_train.npz`, `id_val.npz`, `id_test.npz`, `ood_primary.npz`
+- each file contains:
+  - `X`: tabular features
+  - `y_scalar`: `[P, Tlag, J_ss]`
+  - `J`: flux curve
+  - `t`: time grid
+
+Feature columns in `X`:
+- `patch_width`
+- `patch_offset`
+- `C0`
+- `decay_rate`
+- `heterogeneity_sigma`
+- `heterogeneity_steps`
+- `dose_proxy_c0_over_decay`
+- `log_decay_rate`
+- `width_times_sigma`
+- `D_mean`
+- `D_std`
+- `D_p10`
+- `D_p50`
+- `D_p90`
+- `D_top_mean`
+- `D_bottom_mean`
 
 ---
 
@@ -68,3 +104,8 @@ The split uses a fixed random seed:
 
 The split seed is stored in `index.json`.
 Splits are made with `scikit-learn` so the shuffle is repeatable.
+
+## Placement policy (dataset v1)
+
+- `patch_offset` is sampled from a discrete set: `left`, `center`, `right`.
+- If `patch_width = 1.0`, offset is fixed to `center`.

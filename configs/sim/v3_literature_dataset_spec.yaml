@@ -31,10 +31,9 @@ sampling:
       type: discrete
       values: [0.25, 0.5, 1.0]
     patch_offset:
-      type: conditional_uniform
-      min: 0.0
-      max: 1.0
-      rule_when_patch_width_1p0: 0.5
+      type: conditional_discrete
+      values: [left, center, right]
+      rule_when_patch_width_1p0: center
     C0:
       type: uniform
       min: 0.8

@@ -92,6 +92,8 @@ Generate run folders:
 
 Assemble ID/OOD splits:
 - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml`
+- low-memory option for large datasets:
+  - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml --lightweight`
 
 Outputs:
 - `data/processed/id/v3_train.npz`
@@ -99,6 +101,14 @@ Outputs:
 - `data/processed/id/v3_test.npz`
 - `data/processed/ood/v3_ood_primary.npz`
 - `data/processed/index.json`
+
+Export ML-ready splits:
+- `python -m scripts.sim.export_ml_dataset --processed_dir data/processed --out_dir data/processed/ml`
+
+ML feature vector now includes:
+- base sampled inputs (`patch_width`, `patch_offset`, `C0`, `decay_rate`, `heterogeneity_sigma`, `heterogeneity_steps`)
+- simple derived terms (`C0/decay_rate`, `log(decay_rate)`, `patch_width*heterogeneity_sigma`)
+- D-field summaries from each run (`mean/std/p10/p50/p90/top_mean/bottom_mean`)
 
 ### 6) Runtime profiling
 
@@ -149,8 +159,9 @@ Key sections:
 
 `boundary.patch_offset` supports:
 - `left`, `center`, `right`
-- numeric in `[0, 1]` for continuous lateral placement
-  - `0.0` = far left, `1.0` = far right
+
+For dataset generation (`v3_literature_dataset_spec.yaml`), patch placement is
+sampled from this discrete set to keep the input space simple and consistent.
 
 ## Docs
 

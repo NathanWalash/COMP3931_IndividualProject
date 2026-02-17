@@ -6,6 +6,26 @@ import numpy as np
 from skin_diffusion.utils import ensure_dir, write_json
 
 
+FEATURE_NAMES = [
+    "patch_width",
+    "patch_offset",
+    "C0",
+    "decay_rate",
+    "heterogeneity_sigma",
+    "heterogeneity_steps",
+    "dose_proxy_c0_over_decay",
+    "log_decay_rate",
+    "width_times_sigma",
+    "D_mean",
+    "D_std",
+    "D_p10",
+    "D_p50",
+    "D_p90",
+    "D_top_mean",
+    "D_bottom_mean",
+]
+
+
 def load_json_file(path):
     # small helper so json reads are consistent
     return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -26,7 +46,7 @@ def patch_offset_to_float(value):
 
 
 def read_features_from_meta(meta):
-    # require sampled values from the new dataset spec workflow
+    # read base sampled inputs from metadata
     extras = meta.get("extras", {})
     sample = extras.get("dataset_sample", {})
 
@@ -42,7 +62,58 @@ def read_features_from_meta(meta):
     decay_rate = float(sample["decay_rate"])
     sigma = float(sample["heterogeneity_sigma"])
     steps = float(sample["heterogeneity_steps"])
-    return [patch_width, patch_offset, c0, decay_rate, sigma, steps]
+    base = {}
+    base["patch_width"] = patch_width
+    base["patch_offset"] = patch_offset
+    base["C0"] = c0
+    base["decay_rate"] = decay_rate
+    base["heterogeneity_sigma"] = sigma
+    base["heterogeneity_steps"] = steps
+    return base
+
+
+def read_d_stats_from_run(run_dir):
+    # extract simple summary stats from run D field
+    # these features help represent the sampled heterogeneity realization
+    fields_path = Path(run_dir) / "fields.npz"
+    if not fields_path.exists():
+        raise ValueError("Missing fields.npz in run_dir: " + str(run_dir))
+
+    fields = np.load(fields_path)
+    D = np.asarray(fields["D"], dtype=float)
+    flat = D.ravel()
+
+    stats = {}
+    stats["D_mean"] = float(np.mean(flat))
+    stats["D_std"] = float(np.std(flat))
+    stats["D_p10"] = float(np.percentile(flat, 10.0))
+    stats["D_p50"] = float(np.percentile(flat, 50.0))
+    stats["D_p90"] = float(np.percentile(flat, 90.0))
+    stats["D_top_mean"] = float(np.mean(D[0, :]))
+    stats["D_bottom_mean"] = float(np.mean(D[-1, :]))
+    return stats
+
+
+def build_feature_row(base, d_stats):
+    # combine base inputs + derived terms + D summaries into one vector
+    decay = base["decay_rate"]
+    if decay <= 0.0:
+        raise ValueError("decay_rate must be > 0 for feature building")
+
+    derived = {}
+    derived["dose_proxy_c0_over_decay"] = base["C0"] / decay
+    derived["log_decay_rate"] = float(np.log(decay))
+    derived["width_times_sigma"] = base["patch_width"] * base["heterogeneity_sigma"]
+
+    values = []
+    for name in FEATURE_NAMES:
+        if name in base:
+            values.append(float(base[name]))
+        elif name in derived:
+            values.append(float(derived[name]))
+        else:
+            values.append(float(d_stats[name]))
+    return values
 
 
 def read_scalar_targets(metrics):
@@ -85,8 +156,10 @@ def build_ml_split(split_npz_path, index_entries):
     for entry in index_entries:
         meta = load_json_file(entry["meta_path"])
         metrics = load_json_file(entry["metrics_path"])
+        base = read_features_from_meta(meta)
+        d_stats = read_d_stats_from_run(entry["run_dir"])
 
-        X_rows.append(read_features_from_meta(meta))
+        X_rows.append(build_feature_row(base, d_stats))
         y_scalar_rows.append(read_scalar_targets(metrics))
         row_meta.append(
             {
@@ -128,14 +201,7 @@ def export_ml_ready_dataset(processed_dir, out_dir):
     index = load_json_file(processed_dir / "index.json")
 
     # keep names next to arrays for training scripts
-    feature_names = [
-        "patch_width",
-        "patch_offset",
-        "C0",
-        "decay_rate",
-        "heterogeneity_sigma",
-        "heterogeneity_steps",
-    ]
+    feature_names = FEATURE_NAMES
     scalar_target_names = ["P", "Tlag", "J_ss"]
 
     id_index = index["id_index"]
