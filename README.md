@@ -159,8 +159,9 @@ Key sections:
 
 `boundary.patch_offset` supports:
 - `left`, `center`, `right`
-- numeric in `[0, 1]` for continuous lateral placement
-  - `0.0` = far left, `1.0` = far right
+
+For dataset generation (`v3_literature_dataset_spec.yaml`), patch placement is
+sampled from this discrete set to keep the input space simple and consistent.
 
 ## Docs
 

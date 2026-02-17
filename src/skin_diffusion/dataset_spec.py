@@ -32,24 +32,17 @@ def sample_dataset_parameters(spec, rng):
     width_idx = int(rng.integers(0, len(width_cfg["values"])))
     sample["patch_width"] = float(width_cfg["values"][width_idx])
 
-    # patch offset can be conditional on width
+    # patch offset is conditional discrete (left/center/right)
     offset_cfg = params["patch_offset"]
     offset_type = str(offset_cfg.get("type", ""))
-    if offset_type == "conditional_uniform":
-        if abs(sample["patch_width"] - 1.0) < 1e-12:
-            sample["patch_offset"] = float(offset_cfg["rule_when_patch_width_1p0"])
-        else:
-            low = float(offset_cfg["min"])
-            high = float(offset_cfg["max"])
-            sample["patch_offset"] = float(rng.uniform(low, high))
-    elif offset_type == "conditional_discrete":
+    if offset_type == "conditional_discrete":
         if abs(sample["patch_width"] - 1.0) < 1e-12:
             sample["patch_offset"] = offset_cfg["rule_when_patch_width_1p0"]
         else:
             offset_idx = int(rng.integers(0, len(offset_cfg["values"])))
             sample["patch_offset"] = offset_cfg["values"][offset_idx]
     else:
-        raise ValueError("Unsupported patch_offset type: " + offset_type)
+        raise ValueError("Unsupported patch_offset type (expected conditional_discrete): " + offset_type)
 
     # donor concentration and decay
     c0_cfg = params["C0"]

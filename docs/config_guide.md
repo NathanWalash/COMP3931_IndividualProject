@@ -30,7 +30,7 @@ mode: infinite_dose | time_decay
 C0: donor concentration at t=0
 decay_rate: exponential decay rate for time_decay
 patch_width: fraction of domain width (0..1)
-patch_offset: left | center | right | numeric in [0, 1]
+patch_offset: left | center | right
 bottom: sink (zero)
 sides: neumann (no-flux)
 top_offpatch_mode: neumann (no-flux)
@@ -38,8 +38,7 @@ top_offpatch_mode: neumann (no-flux)
 
 Notes:
 - `patch_width=1.0` makes the problem effectively 1D in depth.
-- Numeric `patch_offset` gives continuous lateral placement:
-  - `0.0` far left, `0.5` centered, `1.0` far right.
+- Dataset workflow uses discrete patch placement (`left/center/right`).
 
 ## Layers (V2)
 

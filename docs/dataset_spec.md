@@ -104,3 +104,8 @@ The split uses a fixed random seed:
 
 The split seed is stored in `index.json`.
 Splits are made with `scikit-learn` so the shuffle is repeatable.
+
+## Placement policy (dataset v1)
+
+- `patch_offset` is sampled from a discrete set: `left`, `center`, `right`.
+- If `patch_width = 1.0`, offset is fixed to `center`.
