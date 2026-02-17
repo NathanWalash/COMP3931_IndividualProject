@@ -19,6 +19,7 @@ def main():
     parser.add_argument("--val_frac", type=float, default=0.15)
     parser.add_argument("--ood_param", default="patch_width")
     parser.add_argument("--ood_value", type=float, default=0.25)
+    parser.add_argument("--lightweight", action="store_true")
     args = parser.parse_args()
 
     # support both sim config and dataset spec input
@@ -67,6 +68,7 @@ def main():
         val_frac=args.val_frac,
         ood_param=args.ood_param,
         ood_value=args.ood_value,
+        include_full_fields=not bool(args.lightweight),
     )
 
     print("saved:", out_dir)

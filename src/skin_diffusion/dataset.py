@@ -31,8 +31,9 @@ def metrics_summary(J):
     return summary
 
 
-def load_run_bundle(run_dir):
+def load_run_bundle(run_dir, include_full_fields=True):
     # load one saved run from disk
+    # in lightweight mode, keep only J/t to reduce RAM usage
     run_dir = Path(run_dir)
     fields = np.load(run_dir / "fields.npz")
     meta_path = run_dir / "meta.json"
@@ -40,10 +41,11 @@ def load_run_bundle(run_dir):
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
     data = {}
-    data["C_snap"] = fields["C_snap"]
-    data["D"] = fields["D"]
-    data["k"] = fields["k"]
-    data["patch_mask"] = fields["patch_mask"]
+    if include_full_fields:
+        data["C_snap"] = fields["C_snap"]
+        data["D"] = fields["D"]
+        data["k"] = fields["k"]
+        data["patch_mask"] = fields["patch_mask"]
     data["t"] = fields["t"]
     data["J"] = fields["J"]
     data["meta_path"] = str(meta_path)
@@ -192,31 +194,37 @@ def validate_run(out_dir):
     return True
 
 
-def stack_runs(runs):
+def stack_runs(runs, include_full_fields=True):
     # stack fields from a list of run dicts
+    # full mode stacks all spatial fields; lightweight stacks only J/t
     if len(runs) == 0:
         return None
-    C_list = []
-    D_list = []
-    k_list = []
-    mask_list = []
+
+    if include_full_fields:
+        C_list = []
+        D_list = []
+        k_list = []
+        mask_list = []
+
     t_list = []
     J_list = []
 
     for r in runs:
-        C_list.append(r["C_snap"])
-        D_list.append(r["D"])
-        k_list.append(r["k"])
-        mask_list.append(r["patch_mask"])
+        if include_full_fields:
+            C_list.append(r["C_snap"])
+            D_list.append(r["D"])
+            k_list.append(r["k"])
+            mask_list.append(r["patch_mask"])
         t_list.append(r["t"])
         J_list.append(r["J"])
 
     print("stacking arrays...")
     data = {}
-    data["C_snap"] = np.stack(C_list, axis=0)
-    data["D"] = np.stack(D_list, axis=0)
-    data["k"] = np.stack(k_list, axis=0)
-    data["patch_mask"] = np.stack(mask_list, axis=0)
+    if include_full_fields:
+        data["C_snap"] = np.stack(C_list, axis=0)
+        data["D"] = np.stack(D_list, axis=0)
+        data["k"] = np.stack(k_list, axis=0)
+        data["patch_mask"] = np.stack(mask_list, axis=0)
     data["t"] = np.stack(t_list, axis=0)
     data["J"] = np.stack(J_list, axis=0)
 
@@ -245,15 +253,20 @@ def save_split_npz(path, split_data):
     if split_data is None:
         return False
 
-    np.savez(
-        path,
-        C_snap=split_data["C_snap"],
-        D=split_data["D"],
-        k=split_data["k"],
-        patch_mask=split_data["patch_mask"],
-        t=split_data["t"],
-        J=split_data["J"],
-    )
+    # write only available keys so lightweight mode can skip large arrays
+    save_data = {}
+    if "C_snap" in split_data:
+        save_data["C_snap"] = split_data["C_snap"]
+    if "D" in split_data:
+        save_data["D"] = split_data["D"]
+    if "k" in split_data:
+        save_data["k"] = split_data["k"]
+    if "patch_mask" in split_data:
+        save_data["patch_mask"] = split_data["patch_mask"]
+    save_data["t"] = split_data["t"]
+    save_data["J"] = split_data["J"]
+
+    np.savez(path, **save_data)
     return True
 
 
@@ -430,6 +443,7 @@ def assemble_processed_dataset_with_ood(
     val_frac=0.15,
     ood_param="patch_width",
     ood_value=0.25,
+    include_full_fields=True,
 ):
     # build ID train/val/test plus OOD holdout set
     # ID split is done only on non-ood runs
@@ -439,7 +453,7 @@ def assemble_processed_dataset_with_ood(
     # load all run bundles
     runs = []
     for run_dir in tqdm(run_dirs, desc="loading runs"):
-        runs.append(load_run_bundle(run_dir))
+        runs.append(load_run_bundle(run_dir, include_full_fields=include_full_fields))
 
     # hold out OOD runs first, then split ID runs
     id_runs, ood_runs = select_id_ood_runs(runs, ood_param=ood_param, ood_value=ood_value)
@@ -464,10 +478,10 @@ def assemble_processed_dataset_with_ood(
         test_runs.append(id_runs[i])
 
     # stack splits into batched arrays
-    train_data = stack_runs(train_runs)
-    val_data = stack_runs(val_runs)
-    test_data = stack_runs(test_runs)
-    ood_data = stack_runs(ood_runs)
+    train_data = stack_runs(train_runs, include_full_fields=include_full_fields)
+    val_data = stack_runs(val_runs, include_full_fields=include_full_fields)
+    test_data = stack_runs(test_runs, include_full_fields=include_full_fields)
+    ood_data = stack_runs(ood_runs, include_full_fields=include_full_fields)
 
     # save split files under id/ and ood/
     id_dir = out_dir / "id"
@@ -491,6 +505,10 @@ def assemble_processed_dataset_with_ood(
     report["train_frac"] = train_frac
     report["val_frac"] = val_frac
     report["ood"] = {"parameter": ood_param, "value": ood_value}
+    if include_full_fields:
+        report["assemble_mode"] = "full"
+    else:
+        report["assemble_mode"] = "lightweight"
     report["counts"] = {
         "total": len(runs),
         "id_total": len(id_runs),
