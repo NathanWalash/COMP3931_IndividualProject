@@ -9,6 +9,28 @@ from skin_diffusion.dataset_spec import is_dataset_spec, load_yaml_file
 from skin_diffusion.utils import ensure_dir
 
 
+def run_index_from_dir(path):
+    # Parse run index from folder name like run_123.
+    name = Path(path).name
+    if not name.startswith("run_"):
+        return None
+    try:
+        return int(name.split("_", 1)[1])
+    except ValueError:
+        return None
+
+
+def in_index_range(run_idx, start_idx, end_idx):
+    # Inclusive range filter; None means unbounded.
+    if run_idx is None:
+        return False
+    if start_idx is not None and run_idx < start_idx:
+        return False
+    if end_idx is not None and run_idx > end_idx:
+        return False
+    return True
+
+
 def main():
     # read args
     parser = argparse.ArgumentParser()
@@ -20,6 +42,8 @@ def main():
     parser.add_argument("--ood_param", default="patch_width")
     parser.add_argument("--ood_value", type=float, default=0.25)
     parser.add_argument("--lightweight", action="store_true")
+    parser.add_argument("--run_start_index", type=int, default=None)
+    parser.add_argument("--run_end_index", type=int, default=None)
     args = parser.parse_args()
 
     # support both sim config and dataset spec input
@@ -53,7 +77,12 @@ def main():
     # find run folders
     run_dirs = []
     for p in tqdm(sorted(dataset_root.glob("run_*")), desc="finding runs"):
-        run_dirs.append(p)
+        idx = run_index_from_dir(p)
+        if in_index_range(idx, args.run_start_index, args.run_end_index):
+            run_dirs.append(p)
+
+    if len(run_dirs) == 0:
+        raise ValueError("No run folders found in requested index range")
 
     # output folder
     out_dir = Path(args.out_dir)

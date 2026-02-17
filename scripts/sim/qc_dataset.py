@@ -6,6 +6,41 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+def run_index_from_path(run_dir):
+    # Parse run index from run directory path.
+    name = Path(run_dir).name
+    if not name.startswith("run_"):
+        return None
+    try:
+        return int(name.split("_", 1)[1])
+    except ValueError:
+        return None
+
+
+def in_index_range(run_idx, start_idx, end_idx):
+    # Inclusive range filter; None means unbounded.
+    if run_idx is None:
+        return False
+    if start_idx is not None and run_idx < start_idx:
+        return False
+    if end_idx is not None and run_idx > end_idx:
+        return False
+    return True
+
+
+def patch_offset_label(value):
+    # Map numeric offset to a readable label for plots/reports.
+    if not np.isfinite(value):
+        return "nan"
+    if np.isclose(value, 0.0):
+        return "left"
+    if np.isclose(value, 0.5):
+        return "center"
+    if np.isclose(value, 1.0):
+        return "right"
+    return f"{float(value):.2f}"
+
+
 def load_json(path):
     # Read JSON from disk.
     text = Path(path).read_text(encoding="utf-8")
@@ -225,6 +260,36 @@ def make_histograms(rows, out_dir):
         field = fields[i]
         # One subplot per field, overlaid by split.
         ax = axes[i // 3][i % 3]
+        if field == "patch_offset":
+            labels = ["left", "center", "right"]
+            x = np.arange(len(labels))
+            width = 0.2
+            for split_i in range(len(split_order)):
+                split_name = split_order[split_i]
+                values = []
+                for row in rows_by_split[split_name]:
+                    values.append(row[field])
+                vals = np.asarray(values, dtype=float)
+                vals = vals[np.isfinite(vals)]
+                if vals.size == 0:
+                    continue
+
+                counts = []
+                for label in labels:
+                    count = 0
+                    for val in vals:
+                        if patch_offset_label(val) == label:
+                            count += 1
+                    counts.append(count)
+                pos = x + (split_i - 1.5) * width
+                ax.bar(pos, counts, width=width, alpha=0.8, label=split_name)
+
+            ax.set_xticks(x)
+            ax.set_xticklabels(labels)
+            ax.set_title("patch_offset (discrete)")
+            ax.grid(alpha=0.2)
+            continue
+
         for split_name in split_order:
             values = []
             for row in rows_by_split[split_name]:
@@ -300,10 +365,21 @@ def build_report(index, rows):
             split_counts[key] = value
         patch_counts[split_name] = split_counts
 
+    # Patch-offset counts make discrete placement balance easy to inspect.
+    patch_offset_counts = {}
+    for split_name, split_rows_list in rows_by_split.items():
+        split_counts = {"left": 0, "center": 0, "right": 0}
+        for row in split_rows_list:
+            label = patch_offset_label(row["patch_offset"])
+            if label in split_counts:
+                split_counts[label] += 1
+        patch_offset_counts[split_name] = split_counts
+
     report = {}
     report["counts"] = index.get("counts", {})
     report["checks"] = checks
     report["patch_width_counts"] = patch_counts
+    report["patch_offset_counts"] = patch_offset_counts
     report["stats"] = stats
     return report
 
@@ -312,6 +388,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--processed_dir", default="data/processed")
     parser.add_argument("--out_dir", default=None)
+    parser.add_argument("--run_start_index", type=int, default=None)
+    parser.add_argument("--run_end_index", type=int, default=None)
     args = parser.parse_args()
 
     # Default output folder is inside the processed dataset folder.
@@ -326,6 +404,17 @@ def main():
     # We do not infer splits from folders.
     index = load_json(processed_dir / "index.json")
     base_rows = collect_rows(index)
+    # Optional run-index filter for subset QC on large datasets.
+    if args.run_start_index is not None or args.run_end_index is not None:
+        filtered_rows = []
+        for entry in base_rows:
+            run_idx = run_index_from_path(entry["run_dir"])
+            if in_index_range(run_idx, args.run_start_index, args.run_end_index):
+                filtered_rows.append(entry)
+        base_rows = filtered_rows
+
+    if len(base_rows) == 0:
+        raise ValueError("No rows found in requested run index range")
 
     # Add sampled parameters and targets for each run.
     rows = []
