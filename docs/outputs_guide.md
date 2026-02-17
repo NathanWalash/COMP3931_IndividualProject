@@ -40,6 +40,10 @@ Notes:
 - `outputs/qc/<name>/qc_report.json`: split counts/checks and summary stats.
 - `outputs/qc/<name>/qc_distributions.png`: 3x3 distribution summary.
   - `patch_offset` is shown as discrete categories (`left`, `center`, `right`).
+- `outputs/qc/run_integrity_report.json`: run-level integrity checks from
+  `scripts.sim.check_runs` (missing files, parse errors, shape validation).
+- `outputs/qc/fix_runs_report.json`: detected missing/corrupt runs and optional
+  in-place regeneration summary from `scripts.sim.fix_runs`.
 
 ## Black-box plot outputs
 

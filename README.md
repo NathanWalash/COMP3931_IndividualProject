@@ -90,6 +90,18 @@ Outputs:
 Generate run folders:
 - `python -m scripts.sim.make_dataset --config configs/sim/v3_literature_dataset_spec.yaml --num_runs 5`
 
+Check run integrity (find broken/incomplete runs):
+- `python -m scripts.sim.check_runs --config configs/sim/v3_literature_dataset_spec.yaml`
+- optional run index slicing:
+  - `python -m scripts.sim.check_runs --config configs/sim/v3_literature_dataset_spec.yaml --run_start_index 500 --run_end_index 999 --out_path outputs/qc/run_integrity_500_999.json`
+- regenerate missing/corrupt runs in-place:
+  - dry run:
+    - `python -m scripts.sim.fix_runs --config configs/sim/v3_literature_dataset_spec.yaml --run_start_index 500 --run_end_index 999 --out_path outputs/qc/fix_runs_500_999.json`
+  - apply fixes:
+    - `python -m scripts.sim.fix_runs --config configs/sim/v3_literature_dataset_spec.yaml --run_start_index 500 --run_end_index 999 --apply --out_path outputs/qc/fix_runs_500_999_apply.json`
+  - optional explicit seed mapping:
+    - `python -m scripts.sim.fix_runs --config configs/sim/v3_literature_dataset_spec.yaml --run_start_index 500 --run_end_index 999 --seed_offset 1000 --apply`
+
 Assemble ID/OOD splits:
 - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml`
 - low-memory option for large datasets:

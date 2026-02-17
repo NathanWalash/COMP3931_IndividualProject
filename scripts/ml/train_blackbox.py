@@ -162,6 +162,29 @@ def choose_transform(values):
     return transform
 
 
+def choose_scalar_log_transform(values):
+    # Scalars are trained in log-space to handle wide dynamic ranges.
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        transform = {}
+        transform["kind"] = "identity"
+        return transform
+
+    positive = finite[finite > 0.0]
+    if positive.size == 0:
+        # Fallback for unexpected non-positive data.
+        transform = {}
+        transform["kind"] = "identity"
+        return transform
+
+    min_value = float(np.min(positive))
+    eps = max(min_value * 1e-3, 1e-30)
+    transform = {}
+    transform["kind"] = "log10"
+    transform["eps"] = eps
+    return transform
+
+
 def apply_transform(values, transform):
     # Apply target transform before fitting.
     if transform["kind"] == "identity":
@@ -276,7 +299,8 @@ def fit_scalar_models(X_train, y_train, X_val, y_val, target_names, use_xgboost,
             model_info["estimator"] = None
             models.append(model_info)
         else:
-            transform = choose_transform(ytr[mask_train])
+            # Keep scalar targets in log-space for stable fitting.
+            transform = choose_scalar_log_transform(ytr[mask_train])
             ytr_transformed = apply_transform(ytr[mask_train], transform)
 
             best_rmse = float("inf")
@@ -501,8 +525,9 @@ def plot_curve_error_over_time(t, J_true, J_pred, out_path, title):
     time_axis = t[0]
 
     fig, ax = plt.subplots(1, 1, figsize=(8, 4), constrained_layout=True)
-    ax.plot(time_axis, mean_err, label="mean |pred-true|")
-    ax.fill_between(time_axis, p10, p90, alpha=0.2, label="10-90 percentile")
+    # Use higher-contrast colors so band and line are easier to distinguish.
+    ax.plot(time_axis, mean_err, color="#C84D00", linewidth=2.0, label="mean |pred-true|")
+    ax.fill_between(time_axis, p10, p90, color="#6FA3D8", alpha=0.35, label="10-90 percentile")
     ax.set_xlabel("time (s)")
     ax.set_ylabel("absolute error")
     ax.set_title(title)
