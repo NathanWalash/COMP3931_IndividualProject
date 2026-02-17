@@ -32,3 +32,22 @@ Notes:
 - `assemble_dataset --lightweight` writes processed split files with only `J` and `t`.
 - `export_ml_dataset` still works in lightweight mode because tabular features come
   from per-run `meta.json` and D-field summaries read from each run bundle.
+- `assemble_dataset`, `qc_dataset`, and `train_blackbox` support optional
+  run slicing with `--run_start_index` and `--run_end_index` (inclusive).
+
+## QC outputs
+
+- `outputs/qc/<name>/qc_report.json`: split counts/checks and summary stats.
+- `outputs/qc/<name>/qc_distributions.png`: 3x3 distribution summary.
+  - `patch_offset` is shown as discrete categories (`left`, `center`, `right`).
+
+## Black-box plot outputs
+
+- `outputs/ml/<name>/plots/scalar_parity_id.png`
+- `outputs/ml/<name>/plots/scalar_parity_ood.png`
+- `outputs/ml/<name>/plots/scalar_residuals_id.png`
+- `outputs/ml/<name>/plots/scalar_residuals_ood.png`
+- `outputs/ml/<name>/plots/curve_examples_id.png` (up to 9 examples in 3x3)
+- `outputs/ml/<name>/plots/curve_examples_ood.png` (up to 9 examples in 3x3)
+- `outputs/ml/<name>/plots/curve_error_over_time_id.png`
+- `outputs/ml/<name>/plots/curve_error_over_time_ood.png`

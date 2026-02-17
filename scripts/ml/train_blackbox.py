@@ -19,6 +19,28 @@ def load_json(path):
     return json.loads(text)
 
 
+def run_index_from_path(run_dir):
+    # Parse run index from run directory path.
+    name = Path(run_dir).name
+    if not name.startswith("run_"):
+        return None
+    try:
+        return int(name.split("_", 1)[1])
+    except ValueError:
+        return None
+
+
+def in_index_range(run_idx, start_idx, end_idx):
+    # Inclusive range filter; None means unbounded.
+    if run_idx is None:
+        return False
+    if start_idx is not None and run_idx < start_idx:
+        return False
+    if end_idx is not None and run_idx > end_idx:
+        return False
+    return True
+
+
 def load_target_names(ml_dir):
     # Load scalar target names written by export_ml_dataset.
     meta_path = Path(ml_dir) / "meta.json"
@@ -43,6 +65,32 @@ def load_npz(path):
     result["J"] = data["J"]
     result["t"] = data["t"]
     return result
+
+
+def filter_split_by_run_index(split_data, split_index_entries, start_idx, end_idx):
+    # Filter one split by run index range using index entries from ml/meta.json.
+    if start_idx is None and end_idx is None:
+        return split_data, split_index_entries
+
+    keep_rows = []
+    for i in range(len(split_index_entries)):
+        entry = split_index_entries[i]
+        run_idx = run_index_from_path(entry["run_dir"])
+        if in_index_range(run_idx, start_idx, end_idx):
+            keep_rows.append(i)
+
+    keep_rows = np.asarray(keep_rows, dtype=int)
+    filtered = {}
+    filtered["X"] = split_data["X"][keep_rows]
+    filtered["y_scalar"] = split_data["y_scalar"][keep_rows]
+    filtered["J"] = split_data["J"][keep_rows]
+    filtered["t"] = split_data["t"][keep_rows]
+
+    filtered_index = []
+    for idx in keep_rows:
+        filtered_index.append(split_index_entries[int(idx)])
+
+    return filtered, filtered_index
 
 
 def rel_percent_error(y_true, y_pred, eps=1e-12):
@@ -368,9 +416,15 @@ def plot_scalar_parity(y_true, y_pred, target_names, out_path, title):
             lo = min(float(np.min(true_values)), float(np.min(pred_values)))
             hi = max(float(np.max(true_values)), float(np.max(pred_values)))
             ax.plot([lo, hi], [lo, hi], "k--", linewidth=1)
+            # Keep equal axis scaling so distance from diagonal is visually meaningful.
+            ax.set_xlim(lo, hi)
+            ax.set_ylim(lo, hi)
             ax.set_xlabel("true")
             ax.set_ylabel("pred")
-            ax.set_title(name)
+            rmse = float(np.sqrt(mean_squared_error(true_values, pred_values)))
+            r2 = safe_r2(true_values, pred_values)
+            ax.set_title(name + f"\nRMSE={rmse:.3g}, R2={r2:.3f}")
+            ax.grid(alpha=0.2)
 
     fig.suptitle(title)
     fig.savefig(out_path, dpi=150)
@@ -378,22 +432,82 @@ def plot_scalar_parity(y_true, y_pred, target_names, out_path, title):
 
 
 def plot_curve_examples(t, J_true, J_pred, out_path, title, max_examples=3):
-    # Save a few true-vs-predicted curve overlays.
+    # Save example true-vs-predicted curve overlays.
+    # We use a 3x3 layout by default so the plot is more informative.
     count = min(max_examples, J_true.shape[0])
-    fig, axes = plt.subplots(count, 1, figsize=(8, 2.8 * count), constrained_layout=True)
+    ncols = 3
+    nrows = int(np.ceil(count / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(14, 3.5 * nrows), constrained_layout=True)
+    axes = np.asarray(axes).reshape(-1)
+
+    # Spread examples through the split instead of plotting only first few rows.
     if count == 1:
-        axes = [axes]
+        sample_idx = np.array([0], dtype=int)
+    else:
+        sample_idx = np.linspace(0, J_true.shape[0] - 1, count, dtype=int)
 
     for i in range(count):
+        row_idx = int(sample_idx[i])
         ax = axes[i]
-        ax.plot(t[i], J_true[i], label="true")
-        ax.plot(t[i], J_pred[i], label="pred")
+        ax.plot(t[row_idx], J_true[row_idx], label="true")
+        ax.plot(t[row_idx], J_pred[row_idx], label="pred")
         ax.set_xlabel("time (s)")
         ax.set_ylabel("J")
-        ax.set_title("sample " + str(i))
+        rel = np.linalg.norm(J_pred[row_idx] - J_true[row_idx]) / (np.linalg.norm(J_true[row_idx]) + 1e-12)
+        ax.set_title("sample " + str(row_idx) + f"\nrelL2={rel:.3f}")
         ax.legend()
+        ax.grid(alpha=0.2)
+
+    for j in range(count, len(axes)):
+        axes[j].axis("off")
 
     fig.suptitle(title)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
+def plot_scalar_residual_hist(y_true, y_pred, target_names, out_path, title):
+    # Plot scalar residual distributions for fast bias/variance inspection.
+    fig, axes = plt.subplots(1, len(target_names), figsize=(12, 3.5), constrained_layout=True)
+    if len(target_names) == 1:
+        axes = [axes]
+
+    for i in range(len(target_names)):
+        ax = axes[i]
+        name = target_names[i]
+        mask = np.isfinite(y_true[:, i]) & np.isfinite(y_pred[:, i])
+        if np.sum(mask) == 0:
+            ax.set_title(name + " (no valid points)")
+            ax.axis("off")
+        else:
+            residual = y_pred[mask, i] - y_true[mask, i]
+            ax.hist(residual, bins=20, alpha=0.8)
+            ax.axvline(0.0, color="k", linestyle="--", linewidth=1)
+            ax.set_title(name)
+            ax.set_xlabel("pred - true")
+            ax.grid(alpha=0.2)
+
+    fig.suptitle(title)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
+def plot_curve_error_over_time(t, J_true, J_pred, out_path, title):
+    # Plot average absolute curve error over time across a split.
+    abs_err = np.abs(J_pred - J_true)
+    mean_err = np.mean(abs_err, axis=0)
+    p10 = np.percentile(abs_err, 10, axis=0)
+    p90 = np.percentile(abs_err, 90, axis=0)
+    time_axis = t[0]
+
+    fig, ax = plt.subplots(1, 1, figsize=(8, 4), constrained_layout=True)
+    ax.plot(time_axis, mean_err, label="mean |pred-true|")
+    ax.fill_between(time_axis, p10, p90, alpha=0.2, label="10-90 percentile")
+    ax.set_xlabel("time (s)")
+    ax.set_ylabel("absolute error")
+    ax.set_title(title)
+    ax.grid(alpha=0.2)
+    ax.legend()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
 
@@ -427,7 +541,16 @@ def build_scalar_rmse_summary(metrics_scalar, target_names):
     return summary
 
 
-def run_training(ml_dir, out_dir, curve_components, use_xgboost, curve_consistency, alpha_grid):
+def run_training(
+    ml_dir,
+    out_dir,
+    curve_components,
+    use_xgboost,
+    curve_consistency,
+    alpha_grid,
+    run_start_index=None,
+    run_end_index=None,
+):
     # Run one full train/evaluate pass and save outputs.
     # Outputs: per-split metrics, runtime info, compact summary, and plots.
     ml_dir = Path(ml_dir)
@@ -437,11 +560,47 @@ def run_training(ml_dir, out_dir, curve_components, use_xgboost, curve_consisten
     out_plot.mkdir(parents=True, exist_ok=True)
 
     target_names = load_target_names(ml_dir)
+    ml_meta = load_json(ml_dir / "meta.json")
+    split_index_map = ml_meta["splits"]
 
     id_train = load_npz(ml_dir / "id_train.npz")
     id_val = load_npz(ml_dir / "id_val.npz")
     id_test = load_npz(ml_dir / "id_test.npz")
     ood = load_npz(ml_dir / "ood_primary.npz")
+
+    id_train, _ = filter_split_by_run_index(
+        id_train,
+        split_index_map["id_train"]["index"],
+        run_start_index,
+        run_end_index,
+    )
+    id_val, _ = filter_split_by_run_index(
+        id_val,
+        split_index_map["id_val"]["index"],
+        run_start_index,
+        run_end_index,
+    )
+    id_test, _ = filter_split_by_run_index(
+        id_test,
+        split_index_map["id_test"]["index"],
+        run_start_index,
+        run_end_index,
+    )
+    ood, _ = filter_split_by_run_index(
+        ood,
+        split_index_map["ood_primary"]["index"],
+        run_start_index,
+        run_end_index,
+    )
+
+    if id_train["X"].shape[0] == 0:
+        raise ValueError("No id_train rows left after run-index filtering")
+    if id_val["X"].shape[0] == 0:
+        raise ValueError("No id_val rows left after run-index filtering")
+    if id_test["X"].shape[0] == 0:
+        raise ValueError("No id_test rows left after run-index filtering")
+    if ood["X"].shape[0] == 0:
+        raise ValueError("No ood_primary rows left after run-index filtering")
 
     # Fit scaler on training data only.
     x_scaler = StandardScaler()
@@ -523,6 +682,10 @@ def run_training(ml_dir, out_dir, curve_components, use_xgboost, curve_consisten
         "id_test": int(id_test["X"].shape[0]),
         "ood_primary": int(ood["X"].shape[0]),
     }
+    runtime["run_index_filter"] = {
+        "start": run_start_index,
+        "end": run_end_index,
+    }
 
     # Keep a short summary for quick checks
     summary = {}
@@ -552,8 +715,50 @@ def run_training(ml_dir, out_dir, curve_components, use_xgboost, curve_consisten
         out_plot / "scalar_parity_ood.png",
         "Scalar parity (OOD)",
     )
-    plot_curve_examples(id_test["t"], id_test["J"], J_id_pred, out_plot / "curve_examples_id.png", "J(t) examples (ID)")
-    plot_curve_examples(ood["t"], ood["J"], J_ood_pred, out_plot / "curve_examples_ood.png", "J(t) examples (OOD)")
+    plot_scalar_residual_hist(
+        id_test["y_scalar"],
+        y_id_pred,
+        target_names,
+        out_plot / "scalar_residuals_id.png",
+        "Scalar residuals (ID)",
+    )
+    plot_scalar_residual_hist(
+        ood["y_scalar"],
+        y_ood_pred,
+        target_names,
+        out_plot / "scalar_residuals_ood.png",
+        "Scalar residuals (OOD)",
+    )
+    plot_curve_examples(
+        id_test["t"],
+        id_test["J"],
+        J_id_pred,
+        out_plot / "curve_examples_id.png",
+        "J(t) examples (ID)",
+        max_examples=9,
+    )
+    plot_curve_examples(
+        ood["t"],
+        ood["J"],
+        J_ood_pred,
+        out_plot / "curve_examples_ood.png",
+        "J(t) examples (OOD)",
+        max_examples=9,
+    )
+    plot_curve_error_over_time(
+        id_test["t"],
+        id_test["J"],
+        J_id_pred,
+        out_plot / "curve_error_over_time_id.png",
+        "Curve error over time (ID)",
+    )
+    plot_curve_error_over_time(
+        ood["t"],
+        ood["J"],
+        J_ood_pred,
+        out_plot / "curve_error_over_time_ood.png",
+        "Curve error over time (OOD)",
+    )
     return out_dir
 
 
@@ -567,6 +772,8 @@ def main():
     parser.add_argument("--use_xgboost", action="store_true")
     parser.add_argument("--no_curve_consistency", action="store_true")
     parser.add_argument("--alpha_grid", default="0.001,0.01,0.1,1,10,100")
+    parser.add_argument("--run_start_index", type=int, default=None)
+    parser.add_argument("--run_end_index", type=int, default=None)
     args = parser.parse_args()
 
     alpha_grid = []
@@ -585,6 +792,8 @@ def main():
         use_xgboost=bool(args.use_xgboost),
         curve_consistency=not bool(args.no_curve_consistency),
         alpha_grid=alpha_grid,
+        run_start_index=args.run_start_index,
+        run_end_index=args.run_end_index,
     )
     print("saved:", out_dir)
 

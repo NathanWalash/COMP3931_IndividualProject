@@ -94,6 +94,8 @@ Assemble ID/OOD splits:
 - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml`
 - low-memory option for large datasets:
   - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml --lightweight`
+- optional run index slicing (inclusive):
+  - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml --run_start_index 0 --run_end_index 499`
 
 Outputs:
 - `data/processed/id/v3_train.npz`
@@ -109,6 +111,12 @@ ML feature vector now includes:
 - base sampled inputs (`patch_width`, `patch_offset`, `C0`, `decay_rate`, `heterogeneity_sigma`, `heterogeneity_steps`)
 - simple derived terms (`C0/decay_rate`, `log(decay_rate)`, `patch_width*heterogeneity_sigma`)
 - D-field summaries from each run (`mean/std/p10/p50/p90/top_mean/bottom_mean`)
+
+Subset evaluation/training by run index (inclusive):
+- QC:
+  - `python -m scripts.sim.qc_dataset --processed_dir data/processed --out_dir outputs/qc/processed --run_start_index 0 --run_end_index 499`
+- Train:
+  - `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --run_start_index 0 --run_end_index 499`
 
 ### 6) Runtime profiling
 
