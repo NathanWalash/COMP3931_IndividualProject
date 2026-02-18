@@ -144,51 +144,6 @@ def read_scalar_targets(metrics):
     ]
 
 
-def build_ml_split(split_npz_path, index_entries):
-    # read curve targets from processed split arrays
-    split_npz_path = Path(split_npz_path)
-    fields = np.load(split_npz_path)
-
-    # J and t are direct targets for curve models
-    J = fields["J"]
-    t = fields["t"]
-
-    if len(index_entries) != J.shape[0]:
-        raise ValueError("Index length does not match split size: " + str(split_npz_path))
-
-    # build tabular inputs + scalar targets from per-run metadata
-    X_rows = []
-    y_scalar_rows = []
-    row_meta = []
-
-    for entry in index_entries:
-        meta = load_json_file(entry["meta_path"])
-        metrics = load_json_file(entry["metrics_path"])
-        base = read_features_from_meta(meta)
-        d_stats = read_d_stats_from_run(entry["run_dir"])
-
-        X_rows.append(build_feature_row(base, d_stats))
-        y_scalar_rows.append(read_scalar_targets(metrics))
-        row_meta.append(
-            {
-                "run_dir": entry["run_dir"],
-                "meta_path": entry["meta_path"],
-                "metrics_path": entry["metrics_path"],
-            }
-        )
-
-    X = np.array(X_rows, dtype=float)
-    y_scalar = np.array(y_scalar_rows, dtype=float)
-
-    data = {}
-    data["X"] = X
-    data["y_scalar"] = y_scalar
-    data["J"] = J
-    data["t"] = t
-    data["row_meta"] = row_meta
-    return data
-
-
 def save_ml_split(out_path, data):
     # save minimal training arrays for one split
     np.savez(

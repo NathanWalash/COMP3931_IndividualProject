@@ -8,28 +8,7 @@ from tqdm import tqdm
 from skin_diffusion.config import load_config
 from skin_diffusion.dataset import validate_run
 from skin_diffusion.dataset_spec import is_dataset_spec, load_yaml_file
-
-
-def run_index_from_dir(path):
-    # Parse run index from folder name like run_123.
-    name = Path(path).name
-    if not name.startswith("run_"):
-        return None
-    try:
-        return int(name.split("_", 1)[1])
-    except ValueError:
-        return None
-
-
-def in_index_range(run_idx, start_idx, end_idx):
-    # Inclusive range filter. None means no bound.
-    if run_idx is None:
-        return False
-    if start_idx is not None and run_idx < start_idx:
-        return False
-    if end_idx is not None and run_idx > end_idx:
-        return False
-    return True
+from skin_diffusion.run_index import in_index_range, run_index_from_path
 
 
 def resolve_dataset_root(config_path):
@@ -132,7 +111,7 @@ def main():
 
     selected = []
     for run_dir in run_dirs:
-        idx = run_index_from_dir(run_dir)
+        idx = run_index_from_path(run_dir)
         if in_index_range(idx, args.run_start_index, args.run_end_index):
             selected.append(run_dir)
 
@@ -142,7 +121,7 @@ def main():
     good_runs = []
     bad_runs = []
     for run_dir in tqdm(selected, desc="checking runs"):
-        idx = run_index_from_dir(run_dir)
+        idx = run_index_from_path(run_dir)
         issues = analyze_run(run_dir)
         if len(issues) == 0:
             good_runs.append({"run_index": idx, "run_dir": str(run_dir)})

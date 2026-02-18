@@ -83,6 +83,9 @@ Feature columns in `X`:
 - `dose_proxy_c0_over_decay`
 - `log_decay_rate`
 - `width_times_sigma`
+- `c0_times_width`
+- `decay_times_width`
+- `sigma_times_width`
 - `D_mean`
 - `D_std`
 - `D_p10`
@@ -90,6 +93,11 @@ Feature columns in `X`:
 - `D_p90`
 - `D_top_mean`
 - `D_bottom_mean`
+
+Split behavior during export:
+- `export_ml_dataset` reads assembled ID arrays and then rebuilds
+  `id_train/id_val/id_test` with stratification (patch width, patch offset,
+  and binned `J_ss`) while keeping the same split sizes.
 
 ---
 

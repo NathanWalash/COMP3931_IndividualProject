@@ -122,7 +122,12 @@ Export ML-ready splits:
 ML feature vector now includes:
 - base sampled inputs (`patch_width`, `patch_offset`, `C0`, `decay_rate`, `heterogeneity_sigma`, `heterogeneity_steps`)
 - simple derived terms (`C0/decay_rate`, `log(decay_rate)`, `patch_width*heterogeneity_sigma`)
+- additional interaction terms (`C0*patch_width`, `decay_rate*patch_width`, `heterogeneity_sigma*patch_width`)
 - D-field summaries from each run (`mean/std/p10/p50/p90/top_mean/bottom_mean`)
+
+Export behavior:
+- `export_ml_dataset` rebuilds ID train/val/test with stratification while
+  preserving split counts from `data/processed/index.json`.
 
 Subset evaluation/training by run index (inclusive):
 - QC:

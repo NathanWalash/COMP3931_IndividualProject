@@ -14,28 +14,7 @@ from skin_diffusion.dataset_spec import (
     load_yaml_file,
     sample_dataset_parameters,
 )
-
-
-def run_index_from_dir(path):
-    # Parse run index from folder name like run_123.
-    name = Path(path).name
-    if not name.startswith("run_"):
-        return None
-    try:
-        return int(name.split("_", 1)[1])
-    except ValueError:
-        return None
-
-
-def in_index_range(run_idx, start_idx, end_idx):
-    # Inclusive range filter.
-    if run_idx is None:
-        return False
-    if run_idx < start_idx:
-        return False
-    if run_idx > end_idx:
-        return False
-    return True
+from skin_diffusion.run_index import in_index_range, run_index_from_path
 
 
 def resolve_config_and_dataset_root(config_path):
@@ -114,7 +93,7 @@ def infer_seed_offset(existing_runs):
     # this offset should be constant.
     offsets = []
     for run_dir in existing_runs:
-        idx = run_index_from_dir(run_dir)
+        idx = run_index_from_path(run_dir)
         if idx is None:
             continue
         meta_path = Path(run_dir) / "meta.json"
@@ -171,7 +150,7 @@ def main():
     existing_dirs = sorted(dataset_root.glob("run_*"))
     existing_by_idx = {}
     for run_dir in existing_dirs:
-        idx = run_index_from_dir(run_dir)
+        idx = run_index_from_path(run_dir)
         if in_index_range(idx, args.run_start_index, args.run_end_index):
             existing_by_idx[idx] = run_dir
 

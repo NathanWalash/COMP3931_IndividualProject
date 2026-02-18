@@ -72,3 +72,11 @@ def test_export_ml_ready_dataset_feature_width(tmp_path):
     train = np.load(out_dir / "id_train.npz")
     assert train["X"].shape == (1, len(FEATURE_NAMES))
     assert train["y_scalar"].shape == (1, 3)
+
+    # Verify the new interaction features are present and numerically correct.
+    feature_idx = {name: i for i, name in enumerate(FEATURE_NAMES)}
+    x_row = train["X"][0]
+    assert np.isclose(x_row[feature_idx["c0_times_width"]], 0.5)
+    assert np.isclose(x_row[feature_idx["decay_times_width"]], 0.1)
+    assert np.isclose(x_row[feature_idx["sigma_times_width"]], 0.02)
+
