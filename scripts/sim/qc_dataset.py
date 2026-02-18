@@ -334,6 +334,7 @@ def build_report(index, rows):
     ]
 
     stats = {}
+    target_coverage = {}
     for split_name, split_rows_list in rows_by_split.items():
         # Basic numeric summary for each field within each split.
         split_stats = {}
@@ -343,6 +344,22 @@ def build_report(index, rows):
                 values.append(row[field])
             split_stats[field] = scalar_stats(values)
         stats[split_name] = split_stats
+
+        # Explicit target coverage helps catch sparse supervision (e.g., Tlag).
+        split_cov = {}
+        total_rows = len(split_rows_list)
+        for target in ["P", "Tlag", "J_ss"]:
+            finite_count = split_stats[target]["n"]
+            if total_rows == 0:
+                finite_fraction = None
+            else:
+                finite_fraction = float(finite_count) / float(total_rows)
+            split_cov[target] = {
+                "finite_n": int(finite_count),
+                "total_n": int(total_rows),
+                "finite_fraction": finite_fraction,
+            }
+        target_coverage[split_name] = split_cov
 
     # Patch-width counts make OOD holdout checks easy to inspect.
     patch_counts = {}
@@ -381,6 +398,7 @@ def build_report(index, rows):
     report["patch_width_counts"] = patch_counts
     report["patch_offset_counts"] = patch_offset_counts
     report["stats"] = stats
+    report["target_coverage"] = target_coverage
     return report
 
 

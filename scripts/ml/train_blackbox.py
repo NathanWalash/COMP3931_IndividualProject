@@ -56,6 +56,21 @@ def load_target_names(ml_dir):
     return [str(name) for name in names]
 
 
+def load_feature_names(ml_dir):
+    # Load feature column names written by export_ml_dataset.
+    meta_path = Path(ml_dir) / "meta.json"
+    if not meta_path.exists():
+        raise ValueError("Missing ml/meta.json: " + str(meta_path))
+
+    meta = load_json(meta_path)
+    names = meta.get("feature_names")
+    if not isinstance(names, list):
+        raise ValueError("meta.json is missing feature_names list")
+    if len(names) == 0:
+        raise ValueError("feature_names list is empty in meta.json")
+    return [str(name) for name in names]
+
+
 def load_npz(path):
     # Load one dataset split from NPZ.
     data = np.load(path)
@@ -141,15 +156,18 @@ def compute_curve_metrics(J_true, J_pred, t, eps=1e-12):
 
 
 def choose_transform(values):
-    # Use log10 only when values are positive and span a wide range.
+    # Use log10 when positive values span a wide range.
+    # Zero values are allowed; they are clipped by apply_transform.
     finite = values[np.isfinite(values)]
     if finite.size < 2:
         return {"kind": "identity"}
-    if np.min(finite) <= 0.0:
+
+    positive = finite[finite > 0.0]
+    if positive.size < 2:
         return {"kind": "identity"}
 
-    min_value = max(float(np.min(finite)), 1e-30)
-    max_value = float(np.max(finite))
+    min_value = max(float(np.min(positive)), 1e-30)
+    max_value = float(np.max(positive))
     spread_ratio = max_value / min_value
 
     if spread_ratio < 20.0:
@@ -198,7 +216,10 @@ def invert_transform(values, transform):
     # Convert predictions back to original units.
     if transform["kind"] == "identity":
         return values
-    return np.power(10.0, values)
+    # Clamp log-space predictions before exponentiation to avoid inf values.
+    # 10^300 is already far beyond any expected scale in this project.
+    clipped = np.clip(values, -300.0, 300.0)
+    return np.power(10.0, clipped)
 
 
 def build_scalar_candidates(use_xgboost, alpha_grid):
@@ -276,27 +297,42 @@ def make_curve_estimator(family, params):
     raise ValueError("Unknown curve model family: " + str(family))
 
 
-def fit_scalar_models(X_train, y_train, X_val, y_val, target_names, use_xgboost, alpha_grid):
+def fit_scalar_models(
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+    target_names,
+    use_xgboost,
+    alpha_grid,
+    min_rows_for_xgboost,
+):
     # Fit one model per scalar target and pick the best on validation RMSE.
     # We train each scalar target separately because scales/availability differ.
     models = []
-    candidates = build_scalar_candidates(use_xgboost, alpha_grid)
-
     for target_idx in range(y_train.shape[1]):
         target_name = target_names[target_idx]
         ytr = y_train[:, target_idx]
         yva = y_val[:, target_idx]
         mask_train = np.isfinite(ytr)
         mask_val = np.isfinite(yva)
+        train_rows = int(np.sum(mask_train))
+        val_rows = int(np.sum(mask_val))
+
+        # Avoid complex models when a target has limited supervision.
+        use_xgboost_for_target = bool(use_xgboost) and (train_rows >= min_rows_for_xgboost)
+        candidates = build_scalar_candidates(use_xgboost_for_target, alpha_grid)
 
         # If a target has no valid training values, keep a placeholder model.
-        if np.sum(mask_train) == 0:
+        if train_rows == 0:
             model_info = {}
             model_info["target_name"] = target_name
             model_info["model_family"] = None
             model_info["transform"] = {"kind": "identity"}
             model_info["hyperparams"] = {}
             model_info["estimator"] = None
+            model_info["train_rows"] = train_rows
+            model_info["val_rows"] = val_rows
             models.append(model_info)
         else:
             # Keep scalar targets in log-space for stable fitting.
@@ -315,8 +351,11 @@ def fit_scalar_models(X_train, y_train, X_val, y_val, target_names, use_xgboost,
                     estimator = make_scalar_estimator(family, params)
                     estimator.fit(X_train[mask_train], ytr_transformed)
 
-                    if np.sum(mask_val) == 0:
-                        rmse = 0.0
+                    if val_rows == 0:
+                        # No validation rows: rank by train RMSE as fallback.
+                        pred_transformed = estimator.predict(X_train[mask_train])
+                        pred = invert_transform(pred_transformed, transform)
+                        rmse = float(np.sqrt(mean_squared_error(ytr[mask_train], pred)))
                     else:
                         pred_transformed = estimator.predict(X_val[mask_val])
                         pred = invert_transform(pred_transformed, transform)
@@ -334,6 +373,8 @@ def fit_scalar_models(X_train, y_train, X_val, y_val, target_names, use_xgboost,
             model_info["transform"] = transform
             model_info["hyperparams"] = best_params
             model_info["estimator"] = best_estimator
+            model_info["train_rows"] = train_rows
+            model_info["val_rows"] = val_rows
             models.append(model_info)
 
     return models
@@ -538,22 +579,33 @@ def plot_curve_error_over_time(t, J_true, J_pred, out_path, title):
 
 
 def scalar_report(y_true, y_pred, target_names):
-    # Per-target metric report with NaN-safe masking.
+    # Per-target metric report with explicit accounting for invalid predictions.
     report = {}
     for i in range(len(target_names)):
         name = target_names[i]
-        mask = np.isfinite(y_true[:, i]) & np.isfinite(y_pred[:, i])
-        if np.sum(mask) == 0:
+        target_mask = np.isfinite(y_true[:, i])
+        pred_mask = np.isfinite(y_pred[:, i])
+        valid_mask = target_mask & pred_mask
+
+        target_n = int(np.sum(target_mask))
+        valid_n = int(np.sum(valid_mask))
+        invalid_pred_n = int(np.sum(target_mask & (~pred_mask)))
+
+        if valid_n == 0:
             stats = {}
             stats["mae"] = float("nan")
             stats["rmse"] = float("nan")
             stats["r2"] = float("nan")
             stats["relative_error_percent"] = float("nan")
             stats["n"] = 0
+            stats["target_n"] = target_n
+            stats["invalid_pred_n"] = invalid_pred_n
             report[name] = stats
         else:
-            stats = compute_scalar_metrics(y_true[mask, i], y_pred[mask, i])
-            stats["n"] = int(np.sum(mask))
+            stats = compute_scalar_metrics(y_true[valid_mask, i], y_pred[valid_mask, i])
+            stats["n"] = valid_n
+            stats["target_n"] = target_n
+            stats["invalid_pred_n"] = invalid_pred_n
             report[name] = stats
     return report
 
@@ -573,6 +625,7 @@ def run_training(
     use_xgboost,
     curve_consistency,
     alpha_grid,
+    min_rows_for_xgboost,
     run_start_index=None,
     run_end_index=None,
 ):
@@ -585,6 +638,7 @@ def run_training(
     out_plot.mkdir(parents=True, exist_ok=True)
 
     target_names = load_target_names(ml_dir)
+    feature_names = load_feature_names(ml_dir)
     ml_meta = load_json(ml_dir / "meta.json")
     split_index_map = ml_meta["splits"]
 
@@ -627,6 +681,9 @@ def run_training(
     if ood["X"].shape[0] == 0:
         raise ValueError("No ood_primary rows left after run-index filtering")
 
+    # Ensure feature schema and arrays agree before fitting.
+    if id_train["X"].shape[1] != len(feature_names):
+        raise ValueError("Feature count mismatch: X has " + str(id_train["X"].shape[1]) + " columns but meta feature_names has " + str(len(feature_names)))
     # Fit scaler on training data only.
     x_scaler = StandardScaler()
     X_train = x_scaler.fit_transform(id_train["X"])
@@ -644,6 +701,7 @@ def run_training(
         target_names,
         use_xgboost=use_xgboost,
         alpha_grid=alpha_grid,
+        min_rows_for_xgboost=min_rows_for_xgboost,
     )
     scalar_train_seconds = float(time.time() - t0)
 
@@ -687,6 +745,8 @@ def run_training(
     runtime["use_xgboost"] = bool(use_xgboost)
     runtime["curve_consistency"] = bool(curve_consistency)
     runtime["target_names"] = target_names
+    runtime["feature_names"] = feature_names
+    runtime["feature_count"] = int(len(feature_names))
 
     runtime_models = []
     for model_info in scalar_models:
@@ -695,6 +755,8 @@ def run_training(
         item["model_family"] = model_info["model_family"]
         item["transform"] = model_info["transform"]
         item["hyperparams"] = model_info["hyperparams"]
+        item["train_rows"] = int(model_info["train_rows"])
+        item["val_rows"] = int(model_info["val_rows"])
         runtime_models.append(item)
     runtime["scalar_models"] = runtime_models
 
@@ -795,7 +857,9 @@ def main():
     parser.add_argument("--out_dir", default="outputs/ml/blackbox")
     parser.add_argument("--curve_components", type=int, default=20)
     parser.add_argument("--use_xgboost", action="store_true")
+    parser.add_argument("--curve_consistency", action="store_true")
     parser.add_argument("--no_curve_consistency", action="store_true")
+    parser.add_argument("--min_rows_for_xgboost", type=int, default=150)
     parser.add_argument("--alpha_grid", default="0.001,0.01,0.1,1,10,100")
     parser.add_argument("--run_start_index", type=int, default=None)
     parser.add_argument("--run_end_index", type=int, default=None)
@@ -808,15 +872,22 @@ def main():
             alpha_grid.append(float(text))
     if len(alpha_grid) == 0:
         raise ValueError("--alpha_grid is empty")
+    if args.curve_consistency and args.no_curve_consistency:
+        raise ValueError("Use either --curve_consistency or --no_curve_consistency, not both")
 
     # Train once with selected options and write outputs.
+    curve_consistency_flag = bool(args.curve_consistency)
+    if args.no_curve_consistency:
+        curve_consistency_flag = False
+
     out_dir = run_training(
         ml_dir=args.ml_dir,
         out_dir=args.out_dir,
         curve_components=args.curve_components,
         use_xgboost=bool(args.use_xgboost),
-        curve_consistency=not bool(args.no_curve_consistency),
+        curve_consistency=curve_consistency_flag,
         alpha_grid=alpha_grid,
+        min_rows_for_xgboost=int(args.min_rows_for_xgboost),
         run_start_index=args.run_start_index,
         run_end_index=args.run_end_index,
     )

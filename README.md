@@ -134,6 +134,8 @@ Subset evaluation/training by run index (inclusive):
   - `python -m scripts.sim.qc_dataset --processed_dir data/processed --out_dir outputs/qc/processed --run_start_index 0 --run_end_index 499`
 - Train:
   - `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --run_start_index 0 --run_end_index 499`
+  - optional tail-scaling consistency (off by default):
+    - `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --curve_consistency`
 
 ### 6) Runtime profiling
 
@@ -181,6 +183,10 @@ Key sections:
 - `layers`: per-layer D and clearance (V2)
 - `heterogeneity`: IID or correlated D noise (V3)
 - `literature`: target permeability/lag time (compare script)
+
+Heterogeneity note:
+- `heterogeneity.sigma` is relative/log-space variability (dimensionless),
+  applied multiplicatively to `D`.
 
 `boundary.patch_offset` supports:
 - `left`, `center`, `right`

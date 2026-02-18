@@ -66,16 +66,16 @@ def build_k_field(H, W, dermis_rows, k_dermis):
     return expand_to_2d(k_y, W)
 
 
-# apply iid noise to a base D field
-# sigma is the noise size
+# apply iid heterogeneity to a base D field
+# sigma is the std in log-space (relative variability)
 # clip keeps values in a safe range
 
 def apply_iid_heterogeneity(D_base, sigma, seed, D_min, D_max):
     rng = np.random.default_rng(seed)
-    noise = rng.normal(0.0, sigma, size=D_base.shape)
+    log_perturb = rng.normal(0.0, sigma, size=D_base.shape)
 
-    # add noise and clip
-    D_het = D_base + noise
+    # multiplicative perturbation keeps units correct for D
+    D_het = D_base * np.exp(log_perturb)
     D_het = np.clip(D_het, D_min, D_max)
     return D_het
 
@@ -85,7 +85,7 @@ def apply_iid_heterogeneity(D_base, sigma, seed, D_min, D_max):
 
 def apply_correlated_heterogeneity(D_base, sigma, seed, D_min, D_max, steps):
     rng = np.random.default_rng(seed)
-    noise = rng.normal(0.0, sigma, size=D_base.shape)
+    noise = rng.normal(0.0, 1.0, size=D_base.shape)
 
     # start from noise then smooth
     field = noise.copy()
@@ -97,7 +97,15 @@ def apply_correlated_heterogeneity(D_base, sigma, seed, D_min, D_max, steps):
         right = np.roll(field, 1, axis=1)
         field = (field + up + down + left + right) / 5.0
 
-    # add noise to base and clip
-    D_het = D_base + field
+    # normalize smoothed field to unit std so sigma has stable meaning
+    field_std = np.std(field)
+    if field_std > 0.0:
+        field = field / field_std
+
+    # sigma controls relative variability in log-space
+    log_perturb = sigma * field
+
+    # apply multiplicative perturbation and clip
+    D_het = D_base * np.exp(log_perturb)
     D_het = np.clip(D_het, D_min, D_max)
     return D_het

@@ -52,11 +52,15 @@ k_dermis: clearance coefficient in dermis rows
 
 ```
 mode: iid | correlated
-sigma: noise magnitude
+sigma: relative noise magnitude in log-space
 seed: random seed for the noise
 D_min, D_max: clip range
 steps: smoothing steps for correlated noise
 ```
+
+Notes:
+- Heterogeneity is applied multiplicatively (`D * exp(noise)`), so `sigma` is
+  dimensionless and represents relative variability.
 
 ## Literature (compare script)
 

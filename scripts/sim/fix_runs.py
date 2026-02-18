@@ -205,6 +205,11 @@ def main():
                 "Could not infer seed_offset from existing runs. "
                 "Pass --seed_offset explicitly."
             )
+        if args.seed_offset is None and offset_spread != 0:
+            raise ValueError(
+                "Inferred seed offset is inconsistent across existing runs "
+                f"(spread={offset_spread}). Pass --seed_offset explicitly."
+            )
 
         for item in broken:
             run_dir = Path(item["run_dir"])

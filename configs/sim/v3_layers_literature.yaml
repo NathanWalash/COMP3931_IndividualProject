@@ -36,6 +36,7 @@ layers:
 
 heterogeneity:
   # Add spatial variability on top of layered baseline.
+  # sigma is relative/log-space variability (not absolute D units).
   mode: correlated
   sigma: 0.05
   seed: 123
