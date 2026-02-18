@@ -96,8 +96,8 @@ Feature columns in `X`:
 
 Split behavior during export:
 - `export_ml_dataset` reads assembled ID arrays and then rebuilds
-  `id_train/id_val/id_test` with stratification (patch width, patch offset,
-  and binned `J_ss`) while keeping the same split sizes.
+  `id_train/id_val/id_test` with input-only stratification
+  (`patch_width`, `patch_offset`) while keeping the same split sizes.
 
 ---
 

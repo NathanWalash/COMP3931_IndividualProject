@@ -164,30 +164,14 @@ def patch_offset_bucket(value):
     return "center"
 
 
-def jss_bucket(jss_values):
-    # Two bins are usually enough and avoid tiny strata classes.
-    finite = np.isfinite(jss_values)
-    result = np.array(["nan"] * len(jss_values), dtype=object)
-    if not np.any(finite):
-        return result
-
-    safe = np.clip(jss_values[finite], 1e-30, None)
-    log_vals = np.log10(safe)
-    threshold = np.median(log_vals)
-    labels = np.where(log_vals <= threshold, "low", "high")
-    result[finite] = labels
-    return result
-
-
 def build_id_strata(index_entries):
-    # Build one simple stratification label per ID row.
+    # Build one simple stratification label per ID row using only input features.
+    # We avoid target-based stratification to keep splits leakage-safe.
     patch_width_labels = []
     patch_offset_labels = []
-    jss_values = []
 
     for entry in index_entries:
         meta = load_json_file(entry["meta_path"])
-        metrics = load_json_file(entry["metrics_path"])
         base = read_features_from_meta(meta)
 
         width_value = float(base["patch_width"])
@@ -198,18 +182,9 @@ def build_id_strata(index_entries):
 
         patch_offset_labels.append(patch_offset_bucket(float(base["patch_offset"])))
 
-        jss_value = metrics.get("J_ss")
-        if jss_value is None:
-            jss_values.append(np.nan)
-        else:
-            jss_values.append(float(jss_value))
-
-    jss_values = np.asarray(jss_values, dtype=float)
-    jss_labels = jss_bucket(jss_values)
-
     labels = []
     for i in range(len(index_entries)):
-        parts = [patch_width_labels[i], patch_offset_labels[i], str(jss_labels[i])]
+        parts = [patch_width_labels[i], patch_offset_labels[i]]
         labels.append("|".join(parts))
     return np.asarray(labels, dtype=object)
 
@@ -223,20 +198,14 @@ def stratified_id_split(index_entries, n_train, n_val, n_test, seed=42):
     all_idx = np.arange(n_total, dtype=int)
     fine_strata = build_id_strata(index_entries)
 
-    coarse_strata = []
-    for label in fine_strata:
-        parts = str(label).split("|")
-        coarse_strata.append("|".join(parts[0:2]))
-    coarse_strata = np.asarray(coarse_strata, dtype=object)
-
     width_only = []
     for label in fine_strata:
         parts = str(label).split("|")
         width_only.append(parts[0])
     width_only = np.asarray(width_only, dtype=object)
 
-    # Try detailed strata first, then fall back to simpler options for tiny datasets.
-    stratify_options = [fine_strata, coarse_strata, width_only, None]
+    # Try width+offset first, then width-only, then unstratified for tiny datasets.
+    stratify_options = [fine_strata, width_only, None]
     val_fraction = float(n_val) / float(n_val + n_test)
 
     for option in stratify_options:

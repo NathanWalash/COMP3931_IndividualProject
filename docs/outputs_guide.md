@@ -39,6 +39,7 @@ Notes:
 ## QC outputs
 
 - `outputs/qc/<name>/qc_report.json`: split counts/checks and summary stats.
+  - includes `target_coverage` with finite counts/fractions for `P`, `Tlag`, `J_ss`.
 - `outputs/qc/<name>/qc_distributions.png`: 3x3 distribution summary.
   - `patch_offset` is shown as discrete categories (`left`, `center`, `right`).
 - `outputs/qc/run_integrity_report.json`: run-level integrity checks from
@@ -56,3 +57,9 @@ Notes:
 - `outputs/ml/<name>/plots/curve_examples_ood.png` (up to 9 examples in 3x3)
 - `outputs/ml/<name>/plots/curve_error_over_time_id.png`
 - `outputs/ml/<name>/plots/curve_error_over_time_ood.png`
+
+Black-box metadata notes:
+- `runtime.json` now records `feature_names` and `feature_count` so runs with
+  different ML feature schemas are easy to identify before comparison.
+- Curve consistency scaling is optional and disabled by default. Enable with
+  `--curve_consistency` only when you explicitly want tail matching to `J_ss`.

@@ -47,6 +47,7 @@ sampling:
       value: correlated
     heterogeneity_sigma:
       type: uniform
+      # Relative/log-space variability (dimensionless).
       min: 0.01
       max: 0.08
     heterogeneity_steps:
