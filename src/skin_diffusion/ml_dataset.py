@@ -17,6 +17,9 @@ FEATURE_NAMES = [
     "dose_proxy_c0_over_decay",
     "log_decay_rate",
     "width_times_sigma",
+    "c0_times_width",
+    "decay_times_width",
+    "sigma_times_width",
     "D_mean",
     "D_std",
     "D_p10",
@@ -105,6 +108,10 @@ def build_feature_row(base, d_stats):
     derived["dose_proxy_c0_over_decay"] = base["C0"] / decay
     derived["log_decay_rate"] = float(np.log(decay))
     derived["width_times_sigma"] = base["patch_width"] * base["heterogeneity_sigma"]
+    # extra low-cost interaction terms for better surrogate fit
+    derived["c0_times_width"] = base["C0"] * base["patch_width"]
+    derived["decay_times_width"] = base["decay_rate"] * base["patch_width"]
+    derived["sigma_times_width"] = base["heterogeneity_sigma"] * base["patch_width"]
 
     values = []
     for name in FEATURE_NAMES:
