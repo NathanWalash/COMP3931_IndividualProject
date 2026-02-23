@@ -72,9 +72,11 @@ def main():
         start_index = args.start_index
 
     if args.seed_start is None:
-        seed_start = cfg.seed
+        # Keep default mapping stable across appended batches:
+        # run_seed = cfg.seed + run_index
+        seed_start = int(cfg.seed) + int(start_index)
     else:
-        seed_start = args.seed_start
+        seed_start = int(args.seed_start)
 
     for i in range(args.num_runs):
         run_seed = seed_start + i

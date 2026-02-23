@@ -204,9 +204,13 @@ def stratified_id_split(index_entries, n_train, n_val, n_test, seed=42):
         width_only.append(parts[0])
     width_only = np.asarray(width_only, dtype=object)
 
+    # For tiny ID datasets, val or test can be empty after assembly.
+    # Handle those cases directly so export never crashes on pilot runs.
+    if n_val == 0 and n_test == 0:
+        return all_idx, np.array([], dtype=int), np.array([], dtype=int)
+
     # Try width+offset first, then width-only, then unstratified for tiny datasets.
     stratify_options = [fine_strata, width_only, None]
-    val_fraction = float(n_val) / float(n_val + n_test)
 
     for option in stratify_options:
         train_strat = option
@@ -222,10 +226,17 @@ def stratified_id_split(index_entries, n_train, n_val, n_test, seed=42):
         except ValueError:
             continue
 
+        # If one side of temp is empty, no second split is needed.
+        if n_val == 0:
+            return train_idx, np.array([], dtype=int), temp_idx
+        if n_test == 0:
+            return train_idx, temp_idx, np.array([], dtype=int)
+
         temp_strat = None
         if option is not None:
             temp_strat = option[temp_idx]
 
+        val_fraction = float(n_val) / float(n_val + n_test)
         try:
             # Second split: val vs test from temp.
             val_idx, test_idx = train_test_split(

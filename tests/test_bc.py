@@ -54,3 +54,36 @@ def test_apply_bc_patch_and_sink():
     # sides are copied from inside (neumann)
     assert np.all(C[:, 0] == C[:, 1])
     assert np.all(C[:, -1] == C[:, -2])
+
+
+def test_apply_bc_keeps_edge_patch_with_neumann_sides():
+    # very narrow patch can sit on side columns
+    H = 4
+    W = 8
+    Cpatch = 2.5
+
+    # left edge case
+    C_left = np.zeros((H, W), dtype=float)
+    mask_left = make_patch_mask(H, W, 0.01, "left")
+    apply_bc(
+        C_left,
+        mask_left,
+        Cpatch,
+        bottom_sink=True,
+        neumann_sides=True,
+        top_offpatch="neumann",
+    )
+    assert C_left[0, 0] == Cpatch
+
+    # right edge case
+    C_right = np.zeros((H, W), dtype=float)
+    mask_right = make_patch_mask(H, W, 0.01, "right")
+    apply_bc(
+        C_right,
+        mask_right,
+        Cpatch,
+        bottom_sink=True,
+        neumann_sides=True,
+        top_offpatch="neumann",
+    )
+    assert C_right[0, -1] == Cpatch
