@@ -80,5 +80,7 @@ def apply_bc(C, mask, Cpatch, bottom_sink=True, neumann_sides=True, top_offpatch
     if neumann_sides:
         C[:, 0] = C[:, 1]
         C[:, -1] = C[:, -2]
+        # keep donor patch fixed when it touches side columns
+        C[mask] = Cpatch
 
     return C

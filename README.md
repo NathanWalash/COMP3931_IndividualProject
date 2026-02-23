@@ -61,7 +61,8 @@ Options:
 Outputs (per run):
 - `fields.npz` with `C_snap`, `D`, `k`, `patch_mask`, `t`, `J`
 - `meta.json` with grid/boundary/stability info
-- `metrics.json` with `P`, `Tlag`, `J_ss` and flux stats
+- `metrics.json` with `P`, `Tlag`, `J_ss`, finite-dose scalars
+  (`AUC_J`, `J_peak`, `t_peak`, `M_delivered_24h`), and flux stats
 
 ### 2) Validation figures
 
@@ -89,9 +90,20 @@ Outputs:
 
 Generate run folders:
 - `python -m scripts.sim.make_dataset --config configs/sim/v3_literature_dataset_spec.yaml --num_runs 5`
+- clearance-sensitivity variant:
+  - `python -m scripts.sim.make_dataset --config configs/sim/v3_literature_dataset_spec_clearance.yaml --num_runs 5`
+
+Important:
+- Use the same spec file for all dataset pipeline steps (`make_dataset`,
+  `check_runs`, `fix_runs`, `assemble_dataset`).
+- `assemble_dataset` reads runs from the spec's `output_root`.
+  If the spec does not match where runs were generated, it will report
+  `No run folders found in requested index range`.
 
 Check run integrity (find broken/incomplete runs):
 - `python -m scripts.sim.check_runs --config configs/sim/v3_literature_dataset_spec.yaml`
+- clearance-sensitivity variant:
+  - `python -m scripts.sim.check_runs --config configs/sim/v3_literature_dataset_spec_clearance.yaml`
 - optional run index slicing:
   - `python -m scripts.sim.check_runs --config configs/sim/v3_literature_dataset_spec.yaml --run_start_index 500 --run_end_index 999 --out_path outputs/qc/run_integrity_500_999.json`
 - regenerate missing/corrupt runs in-place:
@@ -104,8 +116,12 @@ Check run integrity (find broken/incomplete runs):
 
 Assemble ID/OOD splits:
 - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml`
+- clearance-sensitivity variant:
+  - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec_clearance.yaml`
 - low-memory option for large datasets:
   - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml --lightweight`
+- ID-only option (no OOD holdout):
+  - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml --lightweight --no_ood`
 - optional run index slicing (inclusive):
   - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml --run_start_index 0 --run_end_index 499`
 
@@ -113,14 +129,14 @@ Outputs:
 - `data/processed/id/v3_train.npz`
 - `data/processed/id/v3_val.npz`
 - `data/processed/id/v3_test.npz`
-- `data/processed/ood/v3_ood_primary.npz`
+- optional: `data/processed/ood/v3_ood_primary.npz` (when OOD holdout is enabled)
 - `data/processed/index.json`
 
 Export ML-ready splits:
 - `python -m scripts.sim.export_ml_dataset --processed_dir data/processed --out_dir data/processed/ml`
 
 ML feature vector now includes:
-- base sampled inputs (`patch_width`, `patch_offset`, `C0`, `decay_rate`, `heterogeneity_sigma`, `heterogeneity_steps`)
+- base sampled inputs (`patch_width`, `patch_offset`, `C0`, `decay_rate`, `k_dermis`, `heterogeneity_sigma`, `heterogeneity_steps`)
 - simple derived terms (`C0/decay_rate`, `log(decay_rate)`, `patch_width*heterogeneity_sigma`)
 - additional interaction terms (`C0*patch_width`, `decay_rate*patch_width`, `heterogeneity_sigma*patch_width`)
 - D-field summaries from each run (`mean/std/p10/p50/p90/top_mean/bottom_mean`)
@@ -128,14 +144,14 @@ ML feature vector now includes:
 Export behavior:
 - `export_ml_dataset` rebuilds ID train/val/test with stratification while
   preserving split counts from `data/processed/index.json`.
+- scalar targets in `y_scalar` are read from dataset-spec `targets.primary`
+  (fallback is `[P, Tlag, J_ss]` for older processed datasets).
 
 Subset evaluation/training by run index (inclusive):
 - QC:
   - `python -m scripts.sim.qc_dataset --processed_dir data/processed --out_dir outputs/qc/processed --run_start_index 0 --run_end_index 499`
 - Train:
   - `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --run_start_index 0 --run_end_index 499`
-  - optional tail-scaling consistency (off by default):
-    - `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --curve_consistency`
 
 ### 6) Runtime profiling
 
@@ -176,6 +192,8 @@ Main simulation configs:
 - `configs/sim/v2_lidocaine_compare.yaml` (literature compare)
 - `configs/sim/v3_layers_literature.yaml`
 - `configs/sim/v3_literature_dataset_spec.yaml` (dataset spec)
+- `configs/sim/v3_layers_literature_clearance.yaml` (clearance-aware literature base)
+- `configs/sim/v3_literature_dataset_spec_clearance.yaml` (clearance-sensitivity dataset spec)
 
 Key sections:
 - `grid`: `H, W, dx, dt, T, save_every`

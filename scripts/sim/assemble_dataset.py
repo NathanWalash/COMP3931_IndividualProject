@@ -1,12 +1,17 @@
 import argparse
+import json
 from pathlib import Path
 
 from tqdm import tqdm
 
 from skin_diffusion.config import load_config
 from skin_diffusion.dataset import assemble_processed_dataset_with_ood
-from skin_diffusion.dataset_spec import is_dataset_spec, load_yaml_file
-from skin_diffusion.utils import ensure_dir
+from skin_diffusion.dataset_spec import (
+    extract_primary_scalar_targets,
+    is_dataset_spec,
+    load_yaml_file,
+)
+from skin_diffusion.utils import ensure_dir, write_json
 
 
 def run_index_from_dir(path):
@@ -41,6 +46,7 @@ def main():
     parser.add_argument("--val_frac", type=float, default=0.15)
     parser.add_argument("--ood_param", default="patch_width")
     parser.add_argument("--ood_value", type=float, default=0.25)
+    parser.add_argument("--no_ood", action="store_true")
     parser.add_argument("--lightweight", action="store_true")
     parser.add_argument("--run_start_index", type=int, default=None)
     parser.add_argument("--run_end_index", type=int, default=None)
@@ -98,7 +104,22 @@ def main():
         ood_param=args.ood_param,
         ood_value=args.ood_value,
         include_full_fields=not bool(args.lightweight),
+        enable_ood=not bool(args.no_ood),
     )
+
+    # Keep dataset-spec metadata next to split index so export can enforce
+    # target policy without requiring extra CLI arguments.
+    if spec_mode:
+        index_path = out_dir / "index.json"
+        index_report = json.loads(index_path.read_text(encoding="utf-8"))
+        index_report["dataset_spec"] = {
+            "config_path": str(spec_path),
+            "version": raw.get("version"),
+            "description": raw.get("description"),
+            "targets": raw.get("targets", {}),
+            "scalar_primary": extract_primary_scalar_targets(raw),
+        }
+        write_json(index_path, index_report)
 
     print("saved:", out_dir)
 

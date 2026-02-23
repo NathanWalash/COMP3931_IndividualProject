@@ -11,6 +11,7 @@ from skin_diffusion.layers import (
     build_layer_id,
 )
 from skin_diffusion.metrics import (
+    compute_finite_dose_scalars,
     compute_bottom_flux,
     compute_permeability,
     estimate_lag_time,
@@ -78,6 +79,7 @@ def run_simulation(cfg):
     steady_flux = estimate_steady_state_flux(flux_curve, t_save)
     lag_time = estimate_lag_time(flux_curve, t_save)
     permeability = compute_permeability(steady_flux, cfg.boundary.C0)
+    finite_dose_scalars = compute_finite_dose_scalars(flux_curve, t_save, delivered_time_s=86400.0)
 
     metrics = {}
     # store series in plain lists for json
@@ -90,6 +92,10 @@ def run_simulation(cfg):
     metrics["J_ss"] = steady_flux
     metrics["Tlag"] = lag_time
     metrics["P"] = permeability
+    metrics["AUC_J"] = finite_dose_scalars["AUC_J"]
+    metrics["J_peak"] = finite_dose_scalars["J_peak"]
+    metrics["t_peak"] = finite_dose_scalars["t_peak"]
+    metrics["M_delivered_24h"] = finite_dose_scalars["M_delivered_24h"]
 
     # stability info
     stability_info = compute_stability_info(D_field, k_field, cfg.grid)

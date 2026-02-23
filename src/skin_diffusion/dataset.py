@@ -121,15 +121,22 @@ def save_run_bundle(out_dir, cfg, C_snap, t_save, D_field, k_field, patch_mask, 
     # metrics file
     # metrics.json is just a small summary file
     metrics_out = {}
+    metric_names = [
+        "P",
+        "Tlag",
+        "J_ss",
+        "AUC_J",
+        "J_peak",
+        "t_peak",
+        "M_delivered_24h",
+    ]
     # pull metrics if they exist
     if metrics is None:
-        metrics_out["P"] = None
-        metrics_out["Tlag"] = None
-        metrics_out["J_ss"] = None
+        for name in metric_names:
+            metrics_out[name] = None
     else:
-        metrics_out["P"] = metrics.get("P")
-        metrics_out["Tlag"] = metrics.get("Tlag")
-        metrics_out["J_ss"] = metrics.get("J_ss")
+        for name in metric_names:
+            metrics_out[name] = metrics.get(name)
     metrics_out.update(metrics_summary(J))
 
     metrics_path = out_dir / "metrics.json"
@@ -444,6 +451,7 @@ def assemble_processed_dataset_with_ood(
     ood_param="patch_width",
     ood_value=0.25,
     include_full_fields=True,
+    enable_ood=True,
 ):
     # build ID train/val/test plus OOD holdout set
     # ID split is done only on non-ood runs
@@ -456,7 +464,11 @@ def assemble_processed_dataset_with_ood(
         runs.append(load_run_bundle(run_dir, include_full_fields=include_full_fields))
 
     # hold out OOD runs first, then split ID runs
-    id_runs, ood_runs = select_id_ood_runs(runs, ood_param=ood_param, ood_value=ood_value)
+    if enable_ood:
+        id_runs, ood_runs = select_id_ood_runs(runs, ood_param=ood_param, ood_value=ood_value)
+    else:
+        id_runs = runs
+        ood_runs = []
 
     train_idx, val_idx, test_idx = split_indices(
         len(id_runs),
@@ -504,7 +516,10 @@ def assemble_processed_dataset_with_ood(
     report["split_seed"] = split_seed
     report["train_frac"] = train_frac
     report["val_frac"] = val_frac
-    report["ood"] = {"parameter": ood_param, "value": ood_value}
+    if enable_ood:
+        report["ood"] = {"enabled": True, "parameter": ood_param, "value": ood_value}
+    else:
+        report["ood"] = {"enabled": False, "parameter": None, "value": None}
     if include_full_fields:
         report["assemble_mode"] = "full"
     else:

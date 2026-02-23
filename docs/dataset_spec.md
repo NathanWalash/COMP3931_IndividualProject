@@ -23,6 +23,7 @@ Each run folder contains:
 
 - `metrics.json`
   - `P`, `Tlag`, `J_ss`
+  - finite-dose scalars: `AUC_J`, `J_peak`, `t_peak`, `M_delivered_24h`
   - `J_min`, `J_max`, `J_mean`, `J_sum`
 
 Notes:
@@ -31,7 +32,7 @@ Notes:
 
 ---
 
-## Processed datasets (ID + OOD)
+## Processed datasets (ID + optional OOD)
 
 Saved in `data/processed/`:
 
@@ -39,8 +40,8 @@ Saved in `data/processed/`:
   - `id/v3_train.npz`
   - `id/v3_val.npz`
   - `id/v3_test.npz`
-- OOD folder:
-  - `ood/v3_ood_primary.npz`
+- OOD folder (optional):
+  - `ood/v3_ood_primary.npz` (written only when OOD is enabled and non-empty)
 - Legacy compatibility copies are also saved at root:
   - `v3_train.npz`, `v3_val.npz`, `v3_test.npz`
 
@@ -61,15 +62,23 @@ Lightweight assemble mode:
 
 `index.json` stores split settings, counts, and index maps.
 
+Important:
+- `assemble_dataset` reads runs from the `output_root` inside the spec/config
+  you pass in.
+- Use the same spec for `make_dataset`, `check_runs`, `fix_runs`, and
+  `assemble_dataset` to avoid pointing at the wrong run folder.
+
 ---
 
 ## ML-ready export
 
 `scripts/sim/export_ml_dataset.py` creates:
-- `id_train.npz`, `id_val.npz`, `id_test.npz`, `ood_primary.npz`
+- `id_train.npz`, `id_val.npz`, `id_test.npz`
+- optional: `ood_primary.npz` (only when OOD exists in processed inputs)
 - each file contains:
   - `X`: tabular features
-  - `y_scalar`: `[P, Tlag, J_ss]`
+  - `y_scalar`: scalar targets selected from dataset-spec `targets.primary`
+    (e.g. `P`, `J_ss`, `AUC_J`, `J_peak`, `t_peak`, `M_delivered_24h`)
   - `J`: flux curve
   - `t`: time grid
 
@@ -78,6 +87,7 @@ Feature columns in `X`:
 - `patch_offset`
 - `C0`
 - `decay_rate`
+- `k_dermis`
 - `heterogeneity_sigma`
 - `heterogeneity_steps`
 - `dose_proxy_c0_over_decay`
@@ -98,6 +108,14 @@ Split behavior during export:
 - `export_ml_dataset` reads assembled ID arrays and then rebuilds
   `id_train/id_val/id_test` with input-only stratification
   (`patch_width`, `patch_offset`) while keeping the same split sizes.
+- Scalar target policy is read from `data/processed/index.json`:
+  - if `dataset_spec.scalar_primary` exists, that list is used
+  - otherwise export falls back to `[P, Tlag, J_ss]` for compatibility
+- Export writes `meta.json` with:
+  - `feature_names`
+  - `scalar_target_names`
+  - `scalar_target_source` (for example: `dataset_spec.primary`)
+  - row-level split index mapping (`run_dir`, `meta_path`, `metrics_path`)
 
 ---
 
@@ -108,7 +126,9 @@ The split uses a fixed random seed:
 - ID train fraction: 0.7
 - ID val fraction: 0.15
 - ID test fraction: 0.15
-- OOD holdout: `patch_width = 0.25`
+- OOD holdout default: `patch_width = 0.25` when OOD is enabled
+- You can disable OOD with `--no_ood`
+- You can change OOD settings with `--ood_param` and `--ood_value`
 
 The split seed is stored in `index.json`.
 Splits are made with `scikit-learn` so the shuffle is repeatable.
