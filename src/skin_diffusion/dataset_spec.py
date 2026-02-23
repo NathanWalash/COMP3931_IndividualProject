@@ -2,6 +2,18 @@ import numpy as np
 import yaml
 
 
+DEFAULT_SCALAR_TARGET_NAMES = ["P", "Tlag", "J_ss"]
+SUPPORTED_SCALAR_TARGET_NAMES = [
+    "P",
+    "Tlag",
+    "J_ss",
+    "AUC_J",
+    "J_peak",
+    "t_peak",
+    "M_delivered_24h",
+]
+
+
 def load_yaml_file(path):
     # read yaml into a plain dict
     with open(path, "r", encoding="utf-8") as f:
@@ -20,6 +32,30 @@ def is_dataset_spec(raw):
         return False
 
     return True
+
+
+def extract_primary_scalar_targets(spec):
+    # select scalar targets from dataset-spec primary list
+    if not isinstance(spec, dict):
+        return list(DEFAULT_SCALAR_TARGET_NAMES)
+
+    targets = spec.get("targets", {})
+    if not isinstance(targets, dict):
+        return list(DEFAULT_SCALAR_TARGET_NAMES)
+
+    primary = targets.get("primary", [])
+    if not isinstance(primary, list):
+        return list(DEFAULT_SCALAR_TARGET_NAMES)
+
+    selected = []
+    for item in primary:
+        name = str(item)
+        if name in SUPPORTED_SCALAR_TARGET_NAMES and name not in selected:
+            selected.append(name)
+
+    if len(selected) == 0:
+        return list(DEFAULT_SCALAR_TARGET_NAMES)
+    return selected
 
 
 def sample_dataset_parameters(spec, rng):
@@ -66,6 +102,20 @@ def sample_dataset_parameters(spec, rng):
     steps_high = int(steps_cfg["max"])
     sample["heterogeneity_steps"] = int(rng.integers(steps_low, steps_high + 1))
 
+    # optional dermal clearance sampling
+    if "k_dermis" in params:
+        k_cfg = params["k_dermis"]
+        k_type = str(k_cfg.get("type", ""))
+        if k_type == "discrete":
+            k_idx = int(rng.integers(0, len(k_cfg["values"])))
+            sample["k_dermis"] = float(k_cfg["values"][k_idx])
+        elif k_type == "uniform":
+            sample["k_dermis"] = float(
+                rng.uniform(float(k_cfg["min"]), float(k_cfg["max"]))
+            )
+        else:
+            raise ValueError("Unsupported k_dermis type (expected discrete or uniform): " + k_type)
+
     return sample
 
 
@@ -89,6 +139,18 @@ def apply_sample_to_config(cfg, sample, run_seed):
     cfg.extras["heterogeneity"]["steps"] = int(sample["heterogeneity_steps"])
     cfg.extras["heterogeneity"]["seed"] = int(run_seed)
 
+    # optional per-run dermal clearance
+    if "k_dermis" in sample:
+        if "layers" not in cfg.extras:
+            cfg.extras["layers"] = {}
+        cfg.extras["layers"]["k_dermis"] = float(sample["k_dermis"])
+
+    # keep one value for traceability even if k_dermis is fixed in base config
+    if "layers" in cfg.extras and "k_dermis" in cfg.extras["layers"]:
+        k_dermis_value = float(cfg.extras["layers"]["k_dermis"])
+    else:
+        k_dermis_value = 0.0
+
     # keep a copy of sampled inputs in metadata for traceability
     cfg.extras["dataset_sample"] = {
         "patch_width": float(sample["patch_width"]),
@@ -98,5 +160,6 @@ def apply_sample_to_config(cfg, sample, run_seed):
         "heterogeneity_mode": sample["heterogeneity_mode"],
         "heterogeneity_sigma": float(sample["heterogeneity_sigma"]),
         "heterogeneity_steps": int(sample["heterogeneity_steps"]),
+        "k_dermis": k_dermis_value,
         "run_seed": int(run_seed),
     }

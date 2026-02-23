@@ -4,6 +4,10 @@ from pathlib import Path
 import numpy as np
 from sklearn.model_selection import train_test_split
 
+from skin_diffusion.dataset_spec import (
+    DEFAULT_SCALAR_TARGET_NAMES,
+    SUPPORTED_SCALAR_TARGET_NAMES,
+)
 from skin_diffusion.utils import ensure_dir, write_json
 
 
@@ -12,6 +16,7 @@ FEATURE_NAMES = [
     "patch_offset",
     "C0",
     "decay_rate",
+    "k_dermis",
     "heterogeneity_sigma",
     "heterogeneity_steps",
     "dose_proxy_c0_over_decay",
@@ -64,6 +69,12 @@ def read_features_from_meta(meta):
     patch_offset = patch_offset_to_float(sample["patch_offset"])
     c0 = float(sample["C0"])
     decay_rate = float(sample["decay_rate"])
+    if "k_dermis" in sample:
+        k_dermis = float(sample["k_dermis"])
+    else:
+        # backward compatibility for older runs
+        layers = extras.get("layers", {})
+        k_dermis = float(layers.get("k_dermis", 0.0))
     sigma = float(sample["heterogeneity_sigma"])
     steps = float(sample["heterogeneity_steps"])
     base = {}
@@ -71,6 +82,7 @@ def read_features_from_meta(meta):
     base["patch_offset"] = patch_offset
     base["C0"] = c0
     base["decay_rate"] = decay_rate
+    base["k_dermis"] = k_dermis
     base["heterogeneity_sigma"] = sigma
     base["heterogeneity_steps"] = steps
     return base
@@ -124,24 +136,36 @@ def build_feature_row(base, d_stats):
     return values
 
 
-def read_scalar_targets(metrics):
-    # some runs can have missing lag-time; store as NaN for filtering later
-    p_val = metrics.get("P")
-    tlag_val = metrics.get("Tlag")
-    jss_val = metrics.get("J_ss")
+def read_scalar_targets(metrics, scalar_target_names):
+    # some runs can have missing scalar metrics; keep NaN for filtering later
+    values = []
+    for name in scalar_target_names:
+        value = metrics.get(name)
+        if value is None:
+            value = np.nan
+        values.append(float(value))
+    return values
 
-    if p_val is None:
-        p_val = np.nan
-    if tlag_val is None:
-        tlag_val = np.nan
-    if jss_val is None:
-        jss_val = np.nan
 
-    return [
-        float(p_val),
-        float(tlag_val),
-        float(jss_val),
-    ]
+def scalar_target_policy_from_index(index):
+    # choose scalar targets from processed index metadata when available
+    selected = list(DEFAULT_SCALAR_TARGET_NAMES)
+    source = "default"
+
+    spec_meta = index.get("dataset_spec", {})
+    if isinstance(spec_meta, dict):
+        scalar_primary = spec_meta.get("scalar_primary")
+        if isinstance(scalar_primary, list):
+            cleaned = []
+            for item in scalar_primary:
+                name = str(item)
+                if name in SUPPORTED_SCALAR_TARGET_NAMES and name not in cleaned:
+                    cleaned.append(name)
+            if len(cleaned) > 0:
+                selected = cleaned
+                source = "dataset_spec.primary"
+
+    return selected, source
 
 
 def save_ml_split(out_path, data):
@@ -264,7 +288,7 @@ def subset_array(arr, idx_array):
     return arr[np.asarray(idx_array, dtype=int)]
 
 
-def build_ml_split_from_arrays(J, t, index_entries):
+def build_ml_split_from_arrays(J, t, index_entries, scalar_target_names):
     # Same as build_ml_split, but using in-memory J/t arrays.
     if len(index_entries) != J.shape[0]:
         raise ValueError("Index length does not match J rows")
@@ -280,7 +304,7 @@ def build_ml_split_from_arrays(J, t, index_entries):
         d_stats = read_d_stats_from_run(entry["run_dir"])
 
         X_rows.append(build_feature_row(base, d_stats))
-        y_scalar_rows.append(read_scalar_targets(metrics))
+        y_scalar_rows.append(read_scalar_targets(metrics, scalar_target_names))
         row_meta.append(
             {
                 "run_dir": entry["run_dir"],
@@ -311,7 +335,7 @@ def export_ml_ready_dataset(processed_dir, out_dir):
 
     # keep names next to arrays for training scripts
     feature_names = FEATURE_NAMES
-    scalar_target_names = ["P", "Tlag", "J_ss"]
+    scalar_target_names, scalar_target_source = scalar_target_policy_from_index(index)
 
     # Load assembled ID arrays, then re-split them with stratification.
     # This keeps split sizes the same but improves balance across conditions.
@@ -362,13 +386,17 @@ def export_ml_ready_dataset(processed_dir, out_dir):
         )
     )
 
-    # OOD split stays exactly as assembled.
-    ood_npz = np.load(processed_dir / "ood" / "v3_ood_primary.npz")
-    split_defs.append(("ood_primary", ood_npz["J"], ood_npz["t"], index["ood_index"]))
+    # OOD split stays exactly as assembled when present.
+    ood_npz_path = processed_dir / "ood" / "v3_ood_primary.npz"
+    ood_index = index.get("ood_index", [])
+    if ood_npz_path.exists() and len(ood_index) > 0:
+        ood_npz = np.load(ood_npz_path)
+        split_defs.append(("ood_primary", ood_npz["J"], ood_npz["t"], ood_index))
 
     summary = {}
     summary["feature_names"] = feature_names
     summary["scalar_target_names"] = scalar_target_names
+    summary["scalar_target_source"] = scalar_target_source
     summary["splits"] = {}
 
     for split_name, split_J, split_t, split_index in split_defs:
@@ -377,7 +405,12 @@ def export_ml_ready_dataset(processed_dir, out_dir):
             continue
 
         # build and save one split
-        split_data = build_ml_split_from_arrays(split_J, split_t, split_index)
+        split_data = build_ml_split_from_arrays(
+            split_J,
+            split_t,
+            split_index,
+            scalar_target_names,
+        )
         out_path = out_dir / f"{split_name}.npz"
         save_ml_split(out_path, split_data)
 

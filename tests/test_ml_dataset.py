@@ -37,6 +37,7 @@ def test_export_ml_ready_dataset_feature_width(tmp_path):
         "patch_offset": 0.3,
         "C0": 1.0,
         "decay_rate": 0.2,
+        "k_dermis": 3.3e-5,
         "heterogeneity_sigma": 0.04,
         "heterogeneity_steps": 5,
     }
@@ -68,6 +69,8 @@ def test_export_ml_ready_dataset_feature_width(tmp_path):
     export_ml_ready_dataset(processed, out_dir)
     meta = json.loads((out_dir / "meta.json").read_text(encoding="utf-8"))
     assert meta["feature_names"] == FEATURE_NAMES
+    assert meta["scalar_target_names"] == ["P", "Tlag", "J_ss"]
+    assert meta["scalar_target_source"] == "default"
 
     train = np.load(out_dir / "id_train.npz")
     assert train["X"].shape == (1, len(FEATURE_NAMES))
@@ -76,6 +79,7 @@ def test_export_ml_ready_dataset_feature_width(tmp_path):
     # Verify the new interaction features are present and numerically correct.
     feature_idx = {name: i for i, name in enumerate(FEATURE_NAMES)}
     x_row = train["X"][0]
+    assert np.isclose(x_row[feature_idx["k_dermis"]], 3.3e-5)
     assert np.isclose(x_row[feature_idx["c0_times_width"]], 0.5)
     assert np.isclose(x_row[feature_idx["decay_times_width"]], 0.1)
     assert np.isclose(x_row[feature_idx["sigma_times_width"]], 0.02)

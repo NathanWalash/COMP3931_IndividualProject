@@ -443,29 +443,47 @@ def predict_curve_model(pca, curve_transform, estimator, X):
     return np.maximum(J_pred, 0.0)
 
 
-def enforce_curve_jss_consistency(J_pred, jss_pred, tail_points=100, eps=1e-30):
-    # Scale each predicted curve so its tail matches predicted J_ss.
-    # This is optional and only used when want scalar/curve outputs aligned.
-    J_adjusted = np.array(J_pred, copy=True)
-    n_tail = max(1, min(tail_points, J_adjusted.shape[1]))
+def subplot_grid(item_count, max_cols=3):
+    # Pick a compact grid so target plots stay readable as target count grows.
+    ncols = min(max_cols, max(1, int(item_count)))
+    nrows = int(np.ceil(float(item_count) / float(ncols)))
+    return nrows, ncols
 
-    for i in range(J_adjusted.shape[0]):
-        target = jss_pred[i]
-        if np.isfinite(target):
-            tail_mean = float(np.mean(J_adjusted[i, -n_tail:]))
-            if abs(tail_mean) > eps:
-                scale = target / tail_mean
-                scale = float(np.clip(scale, 0.0, 50.0))
-                J_adjusted[i] = np.maximum(J_adjusted[i] * scale, 0.0)
 
-    return J_adjusted
+def should_use_log_axis(true_values, pred_values):
+    # Use log scale when values are strictly positive and span a wide range.
+    min_true = float(np.min(true_values))
+    min_pred = float(np.min(pred_values))
+    if min_true <= 0.0 or min_pred <= 0.0:
+        return False
+
+    max_true = float(np.max(true_values))
+    max_pred = float(np.max(pred_values))
+    min_value = min(min_true, min_pred)
+    max_value = max(max_true, max_pred)
+    if min_value <= 0.0:
+        return False
+    dynamic_range = max_value / min_value
+    return dynamic_range >= 100.0
+
+
+def has_nearly_zero_span(lo_value, hi_value, rtol=1e-6):
+    # Avoid collapsed parity axes only when values are effectively identical.
+    span = float(hi_value) - float(lo_value)
+    scale = max(abs(float(lo_value)), abs(float(hi_value)), np.finfo(float).eps)
+    return span <= rtol * scale
 
 
 def plot_scalar_parity(y_true, y_pred, target_names, out_path, title):
     # Save predicted-vs-true scatter plots for scalar targets.
-    fig, axes = plt.subplots(1, len(target_names), figsize=(12, 3.5), constrained_layout=True)
-    if len(target_names) == 1:
-        axes = [axes]
+    nrows, ncols = subplot_grid(len(target_names), max_cols=3)
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(5.2 * ncols, 4.2 * nrows),
+        constrained_layout=True,
+    )
+    axes = np.asarray(axes).reshape(-1)
 
     for i in range(len(target_names)):
         name = target_names[i]
@@ -477,22 +495,65 @@ def plot_scalar_parity(y_true, y_pred, target_names, out_path, title):
         else:
             true_values = y_true[mask, i]
             pred_values = y_pred[mask, i]
-            ax.scatter(true_values, pred_values, s=18)
-            lo = min(float(np.min(true_values)), float(np.min(pred_values)))
-            hi = max(float(np.max(true_values)), float(np.max(pred_values)))
+            use_log_axis = should_use_log_axis(true_values, pred_values)
+            ax.scatter(true_values, pred_values, s=24, alpha=0.75, edgecolors="none")
+
+            lo_raw = min(float(np.min(true_values)), float(np.min(pred_values)))
+            hi_raw = max(float(np.max(true_values)), float(np.max(pred_values)))
+            if use_log_axis:
+                lo = lo_raw / 1.2
+                hi = hi_raw * 1.2
+                if lo <= 0.0:
+                    lo = lo_raw * 0.8
+                if hi <= lo:
+                    hi = lo * 10.0
+            else:
+                if has_nearly_zero_span(lo_raw, hi_raw):
+                    center = lo_raw
+                    half_width = max(abs(center) * 0.1, 1e-12)
+                    lo = center - half_width
+                    hi = center + half_width
+                else:
+                    pad = 0.04 * (hi_raw - lo_raw)
+                    lo = lo_raw - pad
+                    hi = hi_raw + pad
+
             ax.plot([lo, hi], [lo, hi], "k--", linewidth=1)
             # Keep equal axis scaling so distance from diagonal is visually meaningful.
             ax.set_xlim(lo, hi)
             ax.set_ylim(lo, hi)
-            ax.set_xlabel("true")
-            ax.set_ylabel("pred")
+            if use_log_axis:
+                ax.set_xscale("log")
+                ax.set_yscale("log")
+                ax.set_xlabel("True (log scale)")
+                ax.set_ylabel("Pred (log scale)")
+            else:
+                ax.set_xlabel("True")
+                ax.set_ylabel("Pred")
+
+            mae = float(mean_absolute_error(true_values, pred_values))
             rmse = float(np.sqrt(mean_squared_error(true_values, pred_values)))
             r2 = safe_r2(true_values, pred_values)
-            ax.set_title(name + f"\nRMSE={rmse:.3g}, R2={r2:.3f}")
-            ax.grid(alpha=0.2)
+            n_points = int(np.sum(mask))
+            ax.set_title(name)
+            text = f"n={n_points}\nMAE={mae:.3g}\nRMSE={rmse:.3g}\nR2={r2:.3f}"
+            ax.text(
+                0.03,
+                0.97,
+                text,
+                transform=ax.transAxes,
+                va="top",
+                ha="left",
+                fontsize=9,
+                bbox={"boxstyle": "round,pad=0.3", "facecolor": "white", "alpha": 0.75},
+            )
+            ax.grid(alpha=0.25)
+
+    for j in range(len(target_names), len(axes)):
+        axes[j].axis("off")
 
     fig.suptitle(title)
-    fig.savefig(out_path, dpi=150)
+    fig.savefig(out_path, dpi=180)
     plt.close(fig)
 
 
@@ -514,28 +575,39 @@ def plot_curve_examples(t, J_true, J_pred, out_path, title, max_examples=3):
     for i in range(count):
         row_idx = int(sample_idx[i])
         ax = axes[i]
-        ax.plot(t[row_idx], J_true[row_idx], label="true")
-        ax.plot(t[row_idx], J_pred[row_idx], label="pred")
-        ax.set_xlabel("time (s)")
-        ax.set_ylabel("J")
-        rel = np.linalg.norm(J_pred[row_idx] - J_true[row_idx]) / (np.linalg.norm(J_true[row_idx]) + 1e-12)
-        ax.set_title("sample " + str(row_idx) + f"\nrelL2={rel:.3f}")
+        time_values = t[row_idx]
+        true_curve = J_true[row_idx]
+        pred_curve = J_pred[row_idx]
+        ax.plot(time_values, true_curve, label="True", linewidth=2.0)
+        ax.plot(time_values, pred_curve, label="Pred", linewidth=1.8, linestyle="--")
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Flux J")
+        if should_use_log_axis(true_curve, pred_curve):
+            ax.set_yscale("log")
+        rel = np.linalg.norm(pred_curve - true_curve) / (np.linalg.norm(true_curve) + 1e-12)
+        mae = float(mean_absolute_error(true_curve, pred_curve))
+        ax.set_title("Sample " + str(row_idx) + f"\nMAE={mae:.3g}, relL2={rel:.3f}")
         ax.legend()
-        ax.grid(alpha=0.2)
+        ax.grid(alpha=0.25)
 
     for j in range(count, len(axes)):
         axes[j].axis("off")
 
     fig.suptitle(title)
-    fig.savefig(out_path, dpi=150)
+    fig.savefig(out_path, dpi=180)
     plt.close(fig)
 
 
 def plot_scalar_residual_hist(y_true, y_pred, target_names, out_path, title):
     # Plot scalar residual distributions for fast bias/variance inspection.
-    fig, axes = plt.subplots(1, len(target_names), figsize=(12, 3.5), constrained_layout=True)
-    if len(target_names) == 1:
-        axes = [axes]
+    nrows, ncols = subplot_grid(len(target_names), max_cols=3)
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(5.2 * ncols, 4.2 * nrows),
+        constrained_layout=True,
+    )
+    axes = np.asarray(axes).reshape(-1)
 
     for i in range(len(target_names)):
         ax = axes[i]
@@ -545,36 +617,94 @@ def plot_scalar_residual_hist(y_true, y_pred, target_names, out_path, title):
             ax.set_title(name + " (no valid points)")
             ax.axis("off")
         else:
-            residual = y_pred[mask, i] - y_true[mask, i]
-            ax.hist(residual, bins=20, alpha=0.8)
+            true_values = y_true[mask, i]
+            pred_values = y_pred[mask, i]
+            if np.min(true_values) > 0.0:
+                residual = 100.0 * (pred_values - true_values) / np.maximum(true_values, 1e-12)
+                x_label = "Relative error (%)"
+            else:
+                residual = pred_values - true_values
+                x_label = "Residual (pred - true)"
+
+            ax.hist(residual, bins=24, alpha=0.8, color="#4C78A8")
             ax.axvline(0.0, color="k", linestyle="--", linewidth=1)
+            mean_value = float(np.mean(residual))
+            ax.axvline(mean_value, color="#D62728", linestyle="-", linewidth=1.2, label=f"mean={mean_value:.3g}")
             ax.set_title(name)
-            ax.set_xlabel("pred - true")
-            ax.grid(alpha=0.2)
+            ax.set_xlabel(x_label)
+            ax.set_ylabel("Count")
+            ax.grid(alpha=0.25)
+            ax.legend(fontsize=8)
+
+    for j in range(len(target_names), len(axes)):
+        axes[j].axis("off")
 
     fig.suptitle(title)
-    fig.savefig(out_path, dpi=150)
+    fig.savefig(out_path, dpi=180)
     plt.close(fig)
 
 
 def plot_curve_error_over_time(t, J_true, J_pred, out_path, title):
-    # Plot average absolute curve error over time across a split.
+    # Plot average absolute and relative curve error over time across a split.
     abs_err = np.abs(J_pred - J_true)
-    mean_err = np.mean(abs_err, axis=0)
-    p10 = np.percentile(abs_err, 10, axis=0)
-    p90 = np.percentile(abs_err, 90, axis=0)
+    rel_err = abs_err / np.maximum(np.abs(J_true), 1e-12)
+
+    mean_abs = np.mean(abs_err, axis=0)
+    p10_abs = np.percentile(abs_err, 10, axis=0)
+    p90_abs = np.percentile(abs_err, 90, axis=0)
+
+    mean_rel = 100.0 * np.mean(rel_err, axis=0)
+    p10_rel = 100.0 * np.percentile(rel_err, 10, axis=0)
+    p90_rel = 100.0 * np.percentile(rel_err, 90, axis=0)
+
     time_axis = t[0]
 
-    fig, ax = plt.subplots(1, 1, figsize=(8, 4), constrained_layout=True)
-    # Use higher-contrast colors so band and line are easier to distinguish.
-    ax.plot(time_axis, mean_err, color="#C84D00", linewidth=2.0, label="mean |pred-true|")
-    ax.fill_between(time_axis, p10, p90, color="#6FA3D8", alpha=0.35, label="10-90 percentile")
-    ax.set_xlabel("time (s)")
-    ax.set_ylabel("absolute error")
-    ax.set_title(title)
-    ax.grid(alpha=0.2)
-    ax.legend()
-    fig.savefig(out_path, dpi=150)
+    fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True, constrained_layout=True)
+    ax_abs = axes[0]
+    ax_rel = axes[1]
+
+    # Keep bands subtle but readable by adding faint percentile boundaries.
+    abs_line_color = "#1D4E89"
+    abs_band_color = "#8EC5FF"
+    rel_line_color = "#B42318"
+    rel_band_color = "#F7B0B0"
+    band_edge_alpha = 0.55
+
+    ax_abs.fill_between(
+        time_axis,
+        p10_abs,
+        p90_abs,
+        color=abs_band_color,
+        alpha=0.30,
+        label="10-90 percentile",
+        zorder=1,
+    )
+    ax_abs.plot(time_axis, p10_abs, color=abs_line_color, linewidth=0.9, linestyle=":", alpha=band_edge_alpha, zorder=2)
+    ax_abs.plot(time_axis, p90_abs, color=abs_line_color, linewidth=0.9, linestyle=":", alpha=band_edge_alpha, zorder=2)
+    ax_abs.plot(time_axis, mean_abs, color=abs_line_color, linewidth=2.3, label="Mean |pred - true|", zorder=3)
+    ax_abs.set_ylabel("Absolute error")
+    ax_abs.set_title(title)
+    ax_abs.grid(alpha=0.25)
+    ax_abs.legend(framealpha=0.9)
+
+    ax_rel.fill_between(
+        time_axis,
+        p10_rel,
+        p90_rel,
+        color=rel_band_color,
+        alpha=0.30,
+        label="10-90 percentile",
+        zorder=1,
+    )
+    ax_rel.plot(time_axis, p10_rel, color=rel_line_color, linewidth=0.9, linestyle=":", alpha=band_edge_alpha, zorder=2)
+    ax_rel.plot(time_axis, p90_rel, color=rel_line_color, linewidth=0.9, linestyle=":", alpha=band_edge_alpha, zorder=2)
+    ax_rel.plot(time_axis, mean_rel, color=rel_line_color, linewidth=2.3, label="Mean relative error", zorder=3)
+    ax_rel.set_xlabel("Time (s)")
+    ax_rel.set_ylabel("Relative error (%)")
+    ax_rel.grid(alpha=0.25)
+    ax_rel.legend(framealpha=0.9)
+
+    fig.savefig(out_path, dpi=180)
     plt.close(fig)
 
 
@@ -623,7 +753,6 @@ def run_training(
     out_dir,
     curve_components,
     use_xgboost,
-    curve_consistency,
     alpha_grid,
     min_rows_for_xgboost,
     run_start_index=None,
@@ -645,7 +774,12 @@ def run_training(
     id_train = load_npz(ml_dir / "id_train.npz")
     id_val = load_npz(ml_dir / "id_val.npz")
     id_test = load_npz(ml_dir / "id_test.npz")
-    ood = load_npz(ml_dir / "ood_primary.npz")
+    ood = None
+    has_ood = False
+    ood_path = ml_dir / "ood_primary.npz"
+    if ood_path.exists() and "ood_primary" in split_index_map:
+        ood = load_npz(ood_path)
+        has_ood = True
 
     id_train, _ = filter_split_by_run_index(
         id_train,
@@ -665,12 +799,13 @@ def run_training(
         run_start_index,
         run_end_index,
     )
-    ood, _ = filter_split_by_run_index(
-        ood,
-        split_index_map["ood_primary"]["index"],
-        run_start_index,
-        run_end_index,
-    )
+    if has_ood:
+        ood, _ = filter_split_by_run_index(
+            ood,
+            split_index_map["ood_primary"]["index"],
+            run_start_index,
+            run_end_index,
+        )
 
     if id_train["X"].shape[0] == 0:
         raise ValueError("No id_train rows left after run-index filtering")
@@ -678,7 +813,7 @@ def run_training(
         raise ValueError("No id_val rows left after run-index filtering")
     if id_test["X"].shape[0] == 0:
         raise ValueError("No id_test rows left after run-index filtering")
-    if ood["X"].shape[0] == 0:
+    if has_ood and ood["X"].shape[0] == 0:
         raise ValueError("No ood_primary rows left after run-index filtering")
 
     # Ensure feature schema and arrays agree before fitting.
@@ -689,7 +824,10 @@ def run_training(
     X_train = x_scaler.fit_transform(id_train["X"])
     X_val = x_scaler.transform(id_val["X"])
     X_test = x_scaler.transform(id_test["X"])
-    X_ood = x_scaler.transform(ood["X"])
+    if has_ood:
+        X_ood = x_scaler.transform(ood["X"])
+    else:
+        X_ood = None
 
     t0 = time.time()
     # Scalar stage: select model/hyperparameters per target on validation split.
@@ -706,7 +844,10 @@ def run_training(
     scalar_train_seconds = float(time.time() - t0)
 
     y_id_pred = predict_scalar_models(scalar_models, X_test)
-    y_ood_pred = predict_scalar_models(scalar_models, X_ood)
+    if has_ood:
+        y_ood_pred = predict_scalar_models(scalar_models, X_ood)
+    else:
+        y_ood_pred = None
 
     t1 = time.time()
     # Curve stage: fit model in PCA space, then decode back to J(t).
@@ -722,12 +863,10 @@ def run_training(
     curve_train_seconds = float(time.time() - t1)
 
     J_id_pred = predict_curve_model(pca, curve_transform, curve_model, X_test)
-    J_ood_pred = predict_curve_model(pca, curve_transform, curve_model, X_ood)
-
-    if curve_consistency:
-        # Optional: force J(t) tail to be consistent with predicted J_ss.
-        J_id_pred = enforce_curve_jss_consistency(J_id_pred, y_id_pred[:, 2])
-        J_ood_pred = enforce_curve_jss_consistency(J_ood_pred, y_ood_pred[:, 2])
+    if has_ood:
+        J_ood_pred = predict_curve_model(pca, curve_transform, curve_model, X_ood)
+    else:
+        J_ood_pred = None
 
     metrics_id = {}
     metrics_id["rows"] = int(id_test["X"].shape[0])
@@ -735,18 +874,25 @@ def run_training(
     metrics_id["curve"] = compute_curve_metrics(id_test["J"], J_id_pred, id_test["t"])
 
     metrics_ood = {}
-    metrics_ood["rows"] = int(ood["X"].shape[0])
-    metrics_ood["scalar"] = scalar_report(ood["y_scalar"], y_ood_pred, target_names)
-    metrics_ood["curve"] = compute_curve_metrics(ood["J"], J_ood_pred, ood["t"])
+    if has_ood:
+        metrics_ood["available"] = True
+        metrics_ood["rows"] = int(ood["X"].shape[0])
+        metrics_ood["scalar"] = scalar_report(ood["y_scalar"], y_ood_pred, target_names)
+        metrics_ood["curve"] = compute_curve_metrics(ood["J"], J_ood_pred, ood["t"])
+    else:
+        metrics_ood["available"] = False
+        metrics_ood["rows"] = 0
+        metrics_ood["scalar"] = {}
+        metrics_ood["curve"] = {}
 
     runtime = {}
     runtime["scalar_train_seconds"] = scalar_train_seconds
     runtime["curve_train_seconds"] = curve_train_seconds
     runtime["use_xgboost"] = bool(use_xgboost)
-    runtime["curve_consistency"] = bool(curve_consistency)
     runtime["target_names"] = target_names
     runtime["feature_names"] = feature_names
     runtime["feature_count"] = int(len(feature_names))
+    runtime["has_ood"] = bool(has_ood)
 
     runtime_models = []
     for model_info in scalar_models:
@@ -767,7 +913,7 @@ def run_training(
         "id_train": int(id_train["X"].shape[0]),
         "id_val": int(id_val["X"].shape[0]),
         "id_test": int(id_test["X"].shape[0]),
-        "ood_primary": int(ood["X"].shape[0]),
+        "ood_primary": int(ood["X"].shape[0]) if has_ood else 0,
     }
     runtime["run_index_filter"] = {
         "start": run_start_index,
@@ -777,11 +923,14 @@ def run_training(
     # Keep a short summary for quick checks
     summary = {}
     summary["id_scalar_rmse"] = build_scalar_rmse_summary(metrics_id["scalar"], target_names)
-    summary["ood_scalar_rmse"] = build_scalar_rmse_summary(metrics_ood["scalar"], target_names)
+    if has_ood:
+        summary["ood_scalar_rmse"] = build_scalar_rmse_summary(metrics_ood["scalar"], target_names)
+    else:
+        summary["ood_scalar_rmse"] = {}
     summary["id_curve_relative_l2"] = metrics_id["curve"]["relative_l2"]
-    summary["ood_curve_relative_l2"] = metrics_ood["curve"]["relative_l2"]
+    summary["ood_curve_relative_l2"] = metrics_ood["curve"].get("relative_l2")
     summary["id_curve_pearson_r"] = metrics_id["curve"]["pearson_r"]
-    summary["ood_curve_pearson_r"] = metrics_ood["curve"]["pearson_r"]
+    summary["ood_curve_pearson_r"] = metrics_ood["curve"].get("pearson_r")
 
     (out_dir / "metrics_id.json").write_text(json.dumps(metrics_id, indent=2), encoding="utf-8")
     (out_dir / "metrics_ood.json").write_text(json.dumps(metrics_ood, indent=2), encoding="utf-8")
@@ -795,13 +944,14 @@ def run_training(
         out_plot / "scalar_parity_id.png",
         "Scalar parity (ID)",
     )
-    plot_scalar_parity(
-        ood["y_scalar"],
-        y_ood_pred,
-        target_names,
-        out_plot / "scalar_parity_ood.png",
-        "Scalar parity (OOD)",
-    )
+    if has_ood:
+        plot_scalar_parity(
+            ood["y_scalar"],
+            y_ood_pred,
+            target_names,
+            out_plot / "scalar_parity_ood.png",
+            "Scalar parity (OOD)",
+        )
     plot_scalar_residual_hist(
         id_test["y_scalar"],
         y_id_pred,
@@ -809,13 +959,14 @@ def run_training(
         out_plot / "scalar_residuals_id.png",
         "Scalar residuals (ID)",
     )
-    plot_scalar_residual_hist(
-        ood["y_scalar"],
-        y_ood_pred,
-        target_names,
-        out_plot / "scalar_residuals_ood.png",
-        "Scalar residuals (OOD)",
-    )
+    if has_ood:
+        plot_scalar_residual_hist(
+            ood["y_scalar"],
+            y_ood_pred,
+            target_names,
+            out_plot / "scalar_residuals_ood.png",
+            "Scalar residuals (OOD)",
+        )
     plot_curve_examples(
         id_test["t"],
         id_test["J"],
@@ -824,14 +975,15 @@ def run_training(
         "J(t) examples (ID)",
         max_examples=9,
     )
-    plot_curve_examples(
-        ood["t"],
-        ood["J"],
-        J_ood_pred,
-        out_plot / "curve_examples_ood.png",
-        "J(t) examples (OOD)",
-        max_examples=9,
-    )
+    if has_ood:
+        plot_curve_examples(
+            ood["t"],
+            ood["J"],
+            J_ood_pred,
+            out_plot / "curve_examples_ood.png",
+            "J(t) examples (OOD)",
+            max_examples=9,
+        )
     plot_curve_error_over_time(
         id_test["t"],
         id_test["J"],
@@ -839,13 +991,14 @@ def run_training(
         out_plot / "curve_error_over_time_id.png",
         "Curve error over time (ID)",
     )
-    plot_curve_error_over_time(
-        ood["t"],
-        ood["J"],
-        J_ood_pred,
-        out_plot / "curve_error_over_time_ood.png",
-        "Curve error over time (OOD)",
-    )
+    if has_ood:
+        plot_curve_error_over_time(
+            ood["t"],
+            ood["J"],
+            J_ood_pred,
+            out_plot / "curve_error_over_time_ood.png",
+            "Curve error over time (OOD)",
+        )
     return out_dir
 
 
@@ -857,8 +1010,6 @@ def main():
     parser.add_argument("--out_dir", default="outputs/ml/blackbox")
     parser.add_argument("--curve_components", type=int, default=20)
     parser.add_argument("--use_xgboost", action="store_true")
-    parser.add_argument("--curve_consistency", action="store_true")
-    parser.add_argument("--no_curve_consistency", action="store_true")
     parser.add_argument("--min_rows_for_xgboost", type=int, default=150)
     parser.add_argument("--alpha_grid", default="0.001,0.01,0.1,1,10,100")
     parser.add_argument("--run_start_index", type=int, default=None)
@@ -872,20 +1023,12 @@ def main():
             alpha_grid.append(float(text))
     if len(alpha_grid) == 0:
         raise ValueError("--alpha_grid is empty")
-    if args.curve_consistency and args.no_curve_consistency:
-        raise ValueError("Use either --curve_consistency or --no_curve_consistency, not both")
-
-    # Train once with selected options and write outputs.
-    curve_consistency_flag = bool(args.curve_consistency)
-    if args.no_curve_consistency:
-        curve_consistency_flag = False
 
     out_dir = run_training(
         ml_dir=args.ml_dir,
         out_dir=args.out_dir,
         curve_components=args.curve_components,
         use_xgboost=bool(args.use_xgboost),
-        curve_consistency=curve_consistency_flag,
         alpha_grid=alpha_grid,
         min_rows_for_xgboost=int(args.min_rows_for_xgboost),
         run_start_index=args.run_start_index,

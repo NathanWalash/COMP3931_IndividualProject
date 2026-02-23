@@ -61,3 +61,77 @@ def compute_permeability(J_ss, C0):
     if donor_conc == 0:
         return None
     return float(J_ss / donor_conc)
+
+
+def integrate_flux(flux_curve, t, t_end=None):
+    # integrate J(t) using trapezoids; optional cutoff time for partial area
+    flux_arr = np.asarray(flux_curve, dtype=float)
+    time_arr = np.asarray(t, dtype=float)
+
+    if flux_arr.size == 0 or time_arr.size == 0:
+        return 0.0
+
+    if flux_arr.size == 1 or time_arr.size == 1:
+        return 0.0
+
+    if t_end is None:
+        return float(np.trapezoid(flux_arr, x=time_arr))
+
+    cutoff = float(t_end)
+    if cutoff <= float(time_arr[0]):
+        return 0.0
+
+    last_time = float(time_arr[-1])
+    if cutoff >= last_time:
+        return float(np.trapezoid(flux_arr, x=time_arr))
+
+    right_idx = int(np.searchsorted(time_arr, cutoff, side="right"))
+    if right_idx <= 0:
+        return 0.0
+
+    # if cutoff matches an existing saved time, no interpolation is needed
+    if abs(float(time_arr[right_idx - 1]) - cutoff) <= 1e-12:
+        return float(np.trapezoid(flux_arr[:right_idx], x=time_arr[:right_idx]))
+
+    if right_idx >= len(time_arr):
+        return float(np.trapezoid(flux_arr, x=time_arr))
+
+    t_left = float(time_arr[right_idx - 1])
+    t_right = float(time_arr[right_idx])
+    j_left = float(flux_arr[right_idx - 1])
+    j_right = float(flux_arr[right_idx])
+
+    if t_right <= t_left:
+        return float(np.trapezoid(flux_arr[:right_idx], x=time_arr[:right_idx]))
+
+    weight = (cutoff - t_left) / (t_right - t_left)
+    j_cutoff = j_left + weight * (j_right - j_left)
+
+    time_short = np.concatenate([time_arr[:right_idx], np.array([cutoff], dtype=float)])
+    flux_short = np.concatenate([flux_arr[:right_idx], np.array([j_cutoff], dtype=float)])
+    return float(np.trapezoid(flux_short, x=time_short))
+
+
+def compute_finite_dose_scalars(flux_curve, t, delivered_time_s=86400.0):
+    # extra scalars that stay meaningful when donor concentration decays in time
+    flux_arr = np.asarray(flux_curve, dtype=float)
+    time_arr = np.asarray(t, dtype=float)
+
+    if flux_arr.size == 0 or time_arr.size == 0:
+        return {
+            "AUC_J": 0.0,
+            "J_peak": None,
+            "t_peak": None,
+            "M_delivered_24h": 0.0,
+        }
+
+    peak_idx = int(np.argmax(flux_arr))
+    auc_j = integrate_flux(flux_arr, time_arr)
+    delivered_24h = integrate_flux(flux_arr, time_arr, t_end=float(delivered_time_s))
+
+    metrics = {}
+    metrics["AUC_J"] = float(auc_j)
+    metrics["J_peak"] = float(flux_arr[peak_idx])
+    metrics["t_peak"] = float(time_arr[peak_idx])
+    metrics["M_delivered_24h"] = float(delivered_24h)
+    return metrics

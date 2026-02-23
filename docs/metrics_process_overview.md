@@ -58,15 +58,27 @@ and what the key metrics mean.
   - Computed from the concentration gradient at the bottom.
 
 - **Steady-state flux J_ss**
-  - Average of the tail of J(t) once it stabilizes.
+  - Average of the tail of J(t).
+  - In finite-dose runs, this is a tail summary, not a strict steady state.
 
 - **Lag time Tlag**
   - Time offset from the linear fit of cumulative mass.
   - Represents how long it takes to reach steady permeation.
+  - In finite-dose runs with strong decay, this can be `None`/NaN.
 
 - **Permeability P**
   - Defined as `P = J_ss / C0`.
   - Standard permeability coefficient used in literature.
+  - In finite-dose runs, treat this as a derived proxy (secondary),
+    not a ground-truth constant permeability.
+
+- **Finite-dose scalars (recommended for time-decay donor)**
+  - `AUC_J`: area under `J(t)` over the saved time horizon.
+  - `J_peak`: peak flux value.
+  - `t_peak`: time at peak flux.
+  - `M_delivered_24h`: integrated delivered mass up to 24 hours.
+  - Note: if the run horizon is exactly 24h, `AUC_J` and `M_delivered_24h`
+    will be numerically identical.
 
 - **Diagnostics (optional)**
   - Total mass in the domain (sanity check).

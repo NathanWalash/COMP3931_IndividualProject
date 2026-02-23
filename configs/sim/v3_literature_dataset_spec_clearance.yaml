@@ -1,11 +1,11 @@
-# V3 literature-layer dataset spec for ML/PINN work.
-# This file keeps ranges and split rules explicit.
+# V3 literature-layer dataset spec with dermal clearance sensitivity.
+# This spec is intended for black-box/PINN comparison with explicit k_dermis input.
 
-version: v3_literature_dataset_v1
-description: "Locked dataset-v1 spec: literature-layered V3 backbone + model-space variability for black-box and PINN"
+version: v3_literature_dataset_clearance_v1
+description: "Literature-layered V3 with finite-dose donor and sampled dermal clearance for sensitivity analysis"
 
-base_config: configs/sim/v3_layers_literature.yaml
-output_root: outputs/sim/v3_literature_dataset_v1
+base_config: configs/sim/v3_layers_literature_clearance.yaml
+output_root: outputs/sim/v3_literature_dataset_clearance_v1
 
 grid_policy:
   mode: fixed_from_base_config
@@ -14,17 +14,17 @@ grid_policy:
 sampling:
   num_runs:
     laptop:
-      pilot: 100
-      full_min: 400
-      full_max: 800
+      pilot: 120
+      full_min: 500
+      full_max: 1000
     lab_pc:
-      pilot: 200
-      full_min: 1500
-      full_max: 4000
+      pilot: 250
+      full_min: 2000
+      full_max: 5000
     cluster:
-      pilot: 300
-      full_min: 8000
-      full_max: 20000
+      pilot: 400
+      full_min: 10000
+      full_max: 25000
 
   parameters:
     patch_width:
@@ -42,12 +42,16 @@ sampling:
       type: uniform
       min: 0.05
       max: 0.3
+    # Clearance levels are sensitivity choices centred around a literature anchor.
+    # Units are 1/s.
+    k_dermis:
+      type: discrete
+      values: [0.0, 1.0e-5, 3.3e-5, 1.0e-4]
     heterogeneity_mode:
       type: fixed
       value: correlated
     heterogeneity_sigma:
       type: uniform
-      # Relative/log-space variability (dimensionless).
       min: 0.01
       max: 0.08
     heterogeneity_steps:

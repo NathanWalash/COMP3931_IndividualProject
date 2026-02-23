@@ -115,12 +115,21 @@ def enrich_row(entry):
     row["patch_offset"] = patch_offset_to_float(sample.get("patch_offset", np.nan))
     row["C0"] = to_float_or_nan(sample.get("C0"))
     row["decay_rate"] = to_float_or_nan(sample.get("decay_rate"))
+    if "k_dermis" in sample:
+        row["k_dermis"] = to_float_or_nan(sample.get("k_dermis"))
+    else:
+        layers = extras.get("layers", {})
+        row["k_dermis"] = to_float_or_nan(layers.get("k_dermis"))
     row["heterogeneity_sigma"] = to_float_or_nan(sample.get("heterogeneity_sigma"))
     row["heterogeneity_steps"] = to_float_or_nan(sample.get("heterogeneity_steps"))
 
     row["P"] = to_float_or_nan(metrics.get("P"))
     row["Tlag"] = to_float_or_nan(metrics.get("Tlag"))
     row["J_ss"] = to_float_or_nan(metrics.get("J_ss"))
+    row["AUC_J"] = to_float_or_nan(metrics.get("AUC_J"))
+    row["J_peak"] = to_float_or_nan(metrics.get("J_peak"))
+    row["t_peak"] = to_float_or_nan(metrics.get("t_peak"))
+    row["M_delivered_24h"] = to_float_or_nan(metrics.get("M_delivered_24h"))
     return row
 
 
@@ -179,31 +188,46 @@ def check_split_rules(index, rows_by_split):
 
     checks["count_match"] = {"expected": expected, "actual": actual}
 
-    # 2) OOD policy: OOD patch width must be excluded from ID splits.
-    # ID should not contain the OOD patch width value.
-    ood_value = float(index["ood"]["value"])
+    # 2) OOD policy check (when an OOD holdout is enabled).
+    ood_cfg = index.get("ood", {})
+    if not isinstance(ood_cfg, dict):
+        ood_cfg = {}
+    ood_enabled = bool(ood_cfg.get("enabled", True))
+    ood_total = int(counts.get("ood_total", 0))
 
-    id_patch_widths = []
-    for split_name in ["id_train", "id_val", "id_test"]:
-        for row in rows_by_split[split_name]:
-            id_patch_widths.append(row["patch_width"])
+    if ood_enabled and ood_total > 0 and ood_cfg.get("value") is not None:
+        # OOD patch width must be excluded from ID splits.
+        ood_value = float(ood_cfg["value"])
 
-    ood_patch_widths = []
-    for row in rows_by_split["ood_primary"]:
-        ood_patch_widths.append(row["patch_width"])
+        id_patch_widths = []
+        for split_name in ["id_train", "id_val", "id_test"]:
+            for row in rows_by_split[split_name]:
+                id_patch_widths.append(row["patch_width"])
 
-    id_contains_ood_value = bool(np.any(np.isclose(id_patch_widths, ood_value)))
+        ood_patch_widths = []
+        for row in rows_by_split["ood_primary"]:
+            ood_patch_widths.append(row["patch_width"])
 
-    if len(ood_patch_widths) == 0:
-        ood_all_match_value = False
+        id_contains_ood_value = bool(np.any(np.isclose(id_patch_widths, ood_value)))
+
+        if len(ood_patch_widths) == 0:
+            ood_all_match_value = False
+        else:
+            ood_all_match_value = bool(np.all(np.isclose(ood_patch_widths, ood_value)))
+
+        ood_rule = {}
+        ood_rule["enabled"] = True
+        ood_rule["ood_value"] = ood_value
+        ood_rule["id_contains_ood_value"] = id_contains_ood_value
+        ood_rule["ood_all_match_value"] = ood_all_match_value
+        checks["ood_rule"] = ood_rule
     else:
-        ood_all_match_value = bool(np.all(np.isclose(ood_patch_widths, ood_value)))
-
-    ood_rule = {}
-    ood_rule["ood_value"] = ood_value
-    ood_rule["id_contains_ood_value"] = id_contains_ood_value
-    ood_rule["ood_all_match_value"] = ood_all_match_value
-    checks["ood_rule"] = ood_rule
+        checks["ood_rule"] = {
+            "enabled": False,
+            "ood_value": None,
+            "id_contains_ood_value": None,
+            "ood_all_match_value": None,
+        }
 
     # 3) Leakage check: a run must not appear in more than one split.
     # Same run in multiple splits would leak information.
@@ -238,28 +262,37 @@ def make_histograms(rows, out_dir):
     fields = [
         "patch_width",
         "patch_offset",
+        "k_dermis",
         "C0",
         "decay_rate",
         "heterogeneity_sigma",
         "heterogeneity_steps",
         "P",
-        "Tlag",
         "J_ss",
+        "AUC_J",
+        "J_peak",
+        "t_peak",
+        "M_delivered_24h",
+        "Tlag",
     ]
 
     # Fixed bins for discrete fields keep plots stable across runs.
     bins_by_field = {}
     bins_by_field["patch_width"] = np.array([0.0, 0.3, 0.75, 1.1])
     bins_by_field["patch_offset"] = np.array([-0.1, 0.17, 0.67, 1.1])
+    bins_by_field["k_dermis"] = np.array([-1.0e-8, 0.5e-5, 2.0e-5, 6.0e-5, 1.5e-4])
     bins_by_field["heterogeneity_steps"] = np.arange(2.5, 10.6, 1.0)
 
     split_order = ["id_train", "id_val", "id_test", "ood_primary"]
-    fig, axes = plt.subplots(3, 3, figsize=(13, 10), constrained_layout=True)
+    ncols = 4
+    nrows = int(np.ceil(float(len(fields)) / float(ncols)))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(16, 3.6 * nrows), constrained_layout=True)
+    axes = np.asarray(axes).reshape(-1)
 
     for i in range(len(fields)):
         field = fields[i]
         # One subplot per field, overlaid by split.
-        ax = axes[i // 3][i % 3]
+        ax = axes[i]
         if field == "patch_offset":
             labels = ["left", "center", "right"]
             x = np.arange(len(labels))
@@ -308,7 +341,10 @@ def make_histograms(rows, out_dir):
         ax.set_title(field)
         ax.grid(alpha=0.2)
 
-    axes[0][0].legend(fontsize=8)
+    for i in range(len(fields), len(axes)):
+        axes[i].axis("off")
+
+    axes[0].legend(fontsize=8)
     fig.suptitle("Dataset QC Distributions By Split")
     fig.savefig(out_dir / "qc_distributions.png", dpi=150)
     plt.close(fig)
@@ -324,13 +360,27 @@ def build_report(index, rows):
     fields = [
         "patch_width",
         "patch_offset",
+        "k_dermis",
         "C0",
         "decay_rate",
         "heterogeneity_sigma",
         "heterogeneity_steps",
         "P",
+        "J_ss",
+        "AUC_J",
+        "J_peak",
+        "t_peak",
+        "M_delivered_24h",
+        "Tlag",
+    ]
+    scalar_targets = [
+        "P",
         "Tlag",
         "J_ss",
+        "AUC_J",
+        "J_peak",
+        "t_peak",
+        "M_delivered_24h",
     ]
 
     stats = {}
@@ -348,7 +398,7 @@ def build_report(index, rows):
         # Explicit target coverage helps catch sparse supervision (e.g., Tlag).
         split_cov = {}
         total_rows = len(split_rows_list)
-        for target in ["P", "Tlag", "J_ss"]:
+        for target in scalar_targets:
             finite_count = split_stats[target]["n"]
             if total_rows == 0:
                 finite_fraction = None
@@ -392,11 +442,35 @@ def build_report(index, rows):
                 split_counts[label] += 1
         patch_offset_counts[split_name] = split_counts
 
+    # k_dermis counts are important for clearance-sensitivity studies.
+    k_dermis_counts = {}
+    for split_name, split_rows_list in rows_by_split.items():
+        values = []
+        for row in split_rows_list:
+            values.append(row["k_dermis"])
+
+        if len(values) == 0:
+            keys = []
+            counts = []
+        else:
+            arr = np.asarray(values, dtype=float)
+            arr = arr[np.isfinite(arr)]
+            rounded = np.round(arr, 8)
+            keys, counts = np.unique(rounded, return_counts=True)
+
+        split_counts = {}
+        for idx in range(len(keys)):
+            key = str(float(keys[idx]))
+            value = int(counts[idx])
+            split_counts[key] = value
+        k_dermis_counts[split_name] = split_counts
+
     report = {}
     report["counts"] = index.get("counts", {})
     report["checks"] = checks
     report["patch_width_counts"] = patch_counts
     report["patch_offset_counts"] = patch_offset_counts
+    report["k_dermis_counts"] = k_dermis_counts
     report["stats"] = stats
     report["target_coverage"] = target_coverage
     return report

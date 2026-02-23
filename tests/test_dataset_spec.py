@@ -3,6 +3,7 @@ import numpy as np
 from skin_diffusion.config import load_config
 from skin_diffusion.dataset_spec import (
     apply_sample_to_config,
+    extract_primary_scalar_targets,
     is_dataset_spec,
     sample_dataset_parameters,
 )
@@ -16,6 +17,7 @@ def test_apply_sample_to_config_writes_expected_fields():
         "patch_offset": "left",
         "C0": 1.1,
         "decay_rate": 0.15,
+        "k_dermis": 3.3e-5,
         "heterogeneity_mode": "correlated",
         "heterogeneity_sigma": 0.03,
         "heterogeneity_steps": 6,
@@ -27,10 +29,12 @@ def test_apply_sample_to_config_writes_expected_fields():
     assert cfg.boundary.patch_offset == "left"
     assert cfg.boundary.C0 == 1.1
     assert cfg.boundary.decay_rate == 0.15
+    assert cfg.extras["layers"]["k_dermis"] == 3.3e-5
     assert cfg.extras["heterogeneity"]["mode"] == "correlated"
     assert cfg.extras["heterogeneity"]["sigma"] == 0.03
     assert cfg.extras["heterogeneity"]["steps"] == 6
     assert cfg.extras["heterogeneity"]["seed"] == 1234
+    assert cfg.extras["dataset_sample"]["k_dermis"] == 3.3e-5
     assert cfg.extras["dataset_sample"]["run_seed"] == 1234
 
 def make_min_spec():
@@ -45,6 +49,7 @@ def make_min_spec():
                 },
                 "C0": {"type": "uniform", "min": 0.8, "max": 1.2},
                 "decay_rate": {"type": "uniform", "min": 0.05, "max": 0.3},
+                "k_dermis": {"type": "discrete", "values": [0.0, 1e-5, 3.3e-5]},
                 "heterogeneity_mode": {"type": "fixed", "value": "correlated"},
                 "heterogeneity_sigma": {"type": "uniform", "min": 0.01, "max": 0.08},
                 "heterogeneity_steps": {"type": "randint_inclusive", "min": 3, "max": 9},
@@ -66,6 +71,7 @@ def test_patch_offset_rule_when_width_is_full():
             assert s["patch_offset"] == "center"
         else:
             assert s["patch_offset"] in ["left", "center", "right"]
+        assert s["k_dermis"] in [0.0, 1e-5, 3.3e-5]
 
     assert seen_full_width
 

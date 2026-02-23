@@ -23,10 +23,12 @@ Specification status: locked for implementation phase (can be revised only by ex
 
 1. Primary outputs for both black-box and PINN:
    1. `J(t)` curve.
-   2. Scalar metrics: `P`, `Tlag`, `J_ss`.
-2. Full-field output:
+   2. Scalar metrics: `P`, `J_ss`, `AUC_J`, `J_peak`, `t_peak`, `M_delivered_24h`.
+2. Secondary scalar (reported but not primary for finite-dose runs):
+   1. `Tlag`.
+3. Full-field output:
    1. One focused demonstration run for side-by-side visual comparison in dissertation (simulator vs black-box vs PINN).
-3. Required comparison dimensions:
+4. Required comparison dimensions:
    1. Accuracy.
    2. Physical consistency.
    3. Compute cost.
@@ -97,7 +99,7 @@ Specification status: locked for implementation phase (can be revised only by ex
 4. Integrated absolute error (area between curves).
 5. Pearson correlation between predicted and reference `J(t)`.
 
-### 8.2 Scalar Metrics (`P`, `Tlag`, `J_ss`)
+### 8.2 Scalar Metrics (`P`, `J_ss`, `AUC_J`, `J_peak`, `t_peak`, `M_delivered_24h`, optional `Tlag`)
 
 1. MAE.
 2. RMSE.
@@ -122,7 +124,7 @@ Specification status: locked for implementation phase (can be revised only by ex
 
 1. `J(t)` overlays: simulator vs black-box vs PINN.
 2. `J(t)` error-over-time plots.
-3. Scatter plots for `P`, `Tlag`, `J_ss` (predicted vs simulator).
+3. Scatter plots for primary scalars (and optional `Tlag`) (predicted vs simulator).
 4. Residual histograms for scalar metrics.
 5. ID vs OOD comparison table.
 6. Runtime/compute comparison table.

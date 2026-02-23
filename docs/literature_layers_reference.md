@@ -22,6 +22,18 @@
 - Used to support partition/diffusion framework and layer-wise analysis method.
 - Not used as a direct lidocaine-specific coefficient source.
 
+4. Telaprolu et al. (2025), AAPS PharmSciTech, doi:10.1208/s12249-025-03232-2
+- Used as a lidocaine/prilocaine finite-dose human-skin PBPK context paper.
+- Supports choice of layered structure and finite-dose behaviour focus.
+- Provides dermal partition/diffusion-style parameters in a richer PBPK framework,
+  but not a direct 1-to-1 first-order `k_dermis` value for this simulator.
+
+5. Maciel Tabosa et al. (2021), Drug Delivery and Translational Research, doi:10.1007/s13346-020-00864-8
+- Used for skin-clearance interpretation and a lidocaine terminal-rate anchor.
+- Reports lidocaine `k_terminal = 0.12 h^-1` after patch removal, which maps to
+  about `3.3e-5 s^-1` as a first-order sensitivity anchor in this project.
+- Treated as a modelling prior/sensitivity point, not a direct calibrated truth.
+
 ## Values used in new configs
 
 Layer layout (top to bottom):
@@ -40,6 +52,8 @@ Layer diffusion ordering:
 Dermal clearance:
 - `k_dermis` is kept small/simple in these configs.
 - In the compare-style setup, `k_dermis = 0.0` is used to avoid overfitting unidentifiable sink terms from one paper.
+- In clearance-sensitivity runs, `k_dermis` is varied around a lidocaine anchor
+  (`~3.3e-5 s^-1`) to test robustness of surrogate behaviour and metrics.
 
 ## Important interpretation
 
