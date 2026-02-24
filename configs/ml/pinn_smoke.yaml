@@ -11,9 +11,9 @@ model:
 
 training:
   seed: 321
-  epochs: 250
-  batch_size_data: 2048
-  batch_size_physics: 2048
+  epochs: 5
+  batch_size_data: 256
+  batch_size_physics: 256
   grad_clip_norm: 1.0
   early_stop_patience: 30
 
@@ -30,9 +30,9 @@ loss_weights:
   nonnegativity: 0.1
 
 physics:
-  collocation_points_per_run: 2048
-  boundary_points_per_run: 1024
-  initial_points_per_run: 1024
+  collocation_points_per_run: 128
+  boundary_points_per_run: 64
+  initial_points_per_run: 64
 
 runtime:
   device: auto

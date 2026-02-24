@@ -36,21 +36,25 @@ def load_run_meta(run_dir):
 
 
 def load_run_boundary(meta):
-    # Support both metadata styles used
-    if "boundary" in meta and isinstance(meta["boundary"], dict):
-        return meta["boundary"]
-    if "config" in meta and isinstance(meta["config"], dict):
-        config = meta["config"]
-        boundary = config.get("boundary")
-        if isinstance(boundary, dict):
-            return boundary
-    raise ValueError("Run metadata does not contain boundary settings")
+    # Run-level metadata stores boundary settings at top level.
+    boundary = meta.get("boundary")
+    if not isinstance(boundary, dict):
+        raise ValueError("Run metadata is missing boundary settings")
+    return boundary
+
+
+def load_run_grid(meta):
+    # Run-level metadata stores grid settings at top level.
+    grid = meta.get("grid")
+    if not isinstance(grid, dict):
+        raise ValueError("Run metadata is missing grid settings")
+    return grid
 
 
 def choose_run_rows(rng, row_count, run_count):
     # Sample run rows with replacement for stochastic mini-batches.
     picked = []
-    for _ in range(int(run_count)):
+    while len(picked) < int(run_count):
         row = int(rng.integers(0, int(row_count)))
         picked.append(row)
     return picked
@@ -116,27 +120,28 @@ def sample_collocation_batch(entries, run_count, points_per_run, seed=321):
     run_rows = choose_run_rows(rng, len(entries), run_count)
 
     # Collect per-run chunks first, then concatenate once at the end.
-    x_parts = []
-    y_parts = []
-    t_parts = []
     x_unit_parts = []
     y_unit_parts = []
     t_unit_parts = []
     c_now_parts = []
-    c_prev_parts = []
     d_parts = []
     k_parts = []
-    dt_parts = []
+    x_scale_parts = []
+    y_scale_parts = []
+    t_scale_parts = []
 
     for run_row in run_rows:
         entry = get_entry(entries, run_row)
         run_dir = Path(entry["run_dir"])
         fields = load_run_fields(run_dir)
+        meta = load_run_meta(run_dir)
+        grid = load_run_grid(meta)
 
         c_snap = fields["C_snap"]
         d_field = fields["D"]
         k_field = fields["k"]
         t_curve = fields["t"]
+        dx = float(grid["dx"])
 
         time_count = int(t_curve.shape[0])
         height = int(d_field.shape[0])
@@ -158,39 +163,36 @@ def sample_collocation_batch(entries, run_count, points_per_run, seed=321):
         t_now = t_curve[t_idx]
         t_unit = t_now.astype(float) / float(max(1.0, float(t_curve[-1])))
 
-        # Keep current and previous concentration to support time-residual terms.
+        # Supervised collocation target uses current concentration only.
         c_now = c_snap[t_idx, y_idx, x_idx]
-        c_prev = c_snap[t_idx - 1, y_idx, x_idx]
         # D and k are sampled at the same spatial points as concentration.
         d_vals = d_field[y_idx, x_idx]
         k_vals = k_field[y_idx, x_idx]
-        dt_vals = t_curve[t_idx] - t_curve[t_idx - 1]
+        x_scale_val = float(max(1, width - 1) * dx)
+        y_scale_val = float(max(1, height - 1) * dx)
+        t_scale_val = float(max(1.0, float(t_curve[-1])))
 
-        x_parts.append(x_idx.astype(float))
-        y_parts.append(y_idx.astype(float))
-        t_parts.append(t_now.astype(float))
         x_unit_parts.append(x_unit)
         y_unit_parts.append(y_unit)
         t_unit_parts.append(t_unit)
         c_now_parts.append(c_now.astype(float))
-        c_prev_parts.append(c_prev.astype(float))
         d_parts.append(d_vals.astype(float))
         k_parts.append(k_vals.astype(float))
-        dt_parts.append(dt_vals.astype(float))
+        x_scale_parts.append(np.full(int(points_per_run), x_scale_val, dtype=float))
+        y_scale_parts.append(np.full(int(points_per_run), y_scale_val, dtype=float))
+        t_scale_parts.append(np.full(int(points_per_run), t_scale_val, dtype=float))
 
     # Final flat arrays are what the training loop consumes.
     batch = {}
-    batch["x"] = concat_arrays(x_parts)
-    batch["y"] = concat_arrays(y_parts)
-    batch["t"] = concat_arrays(t_parts)
     batch["x_unit"] = concat_arrays(x_unit_parts)
     batch["y_unit"] = concat_arrays(y_unit_parts)
     batch["t_unit"] = concat_arrays(t_unit_parts)
     batch["C_now_true"] = concat_arrays(c_now_parts)
-    batch["C_prev_true"] = concat_arrays(c_prev_parts)
     batch["D"] = concat_arrays(d_parts)
     batch["k"] = concat_arrays(k_parts)
-    batch["dt"] = concat_arrays(dt_parts)
+    batch["x_scale"] = concat_arrays(x_scale_parts)
+    batch["y_scale"] = concat_arrays(y_scale_parts)
+    batch["t_scale"] = concat_arrays(t_scale_parts)
     return batch
 
 
@@ -200,9 +202,6 @@ def sample_initial_batch(entries, run_count, points_per_run, seed=321):
     run_rows = choose_run_rows(rng, len(entries), run_count)
 
     # Same chunk pattern as collocation sampler.
-    x_parts = []
-    y_parts = []
-    t_parts = []
     x_unit_parts = []
     y_unit_parts = []
     t_unit_parts = []
@@ -229,9 +228,6 @@ def sample_initial_batch(entries, run_count, points_per_run, seed=321):
         t_unit = t0.copy()
         c_vals = c_snap[0, y_idx, x_idx]
 
-        x_parts.append(x_idx.astype(float))
-        y_parts.append(y_idx.astype(float))
-        t_parts.append(t0)
         x_unit_parts.append(x_unit)
         y_unit_parts.append(y_unit)
         t_unit_parts.append(t_unit)
@@ -239,9 +235,6 @@ def sample_initial_batch(entries, run_count, points_per_run, seed=321):
 
     # Return flat arrays for direct tensor conversion in trainer.
     batch = {}
-    batch["x"] = concat_arrays(x_parts)
-    batch["y"] = concat_arrays(y_parts)
-    batch["t"] = concat_arrays(t_parts)
     batch["x_unit"] = concat_arrays(x_unit_parts)
     batch["y_unit"] = concat_arrays(y_unit_parts)
     batch["t_unit"] = concat_arrays(t_unit_parts)
@@ -257,34 +250,28 @@ def sample_boundary_batch(entries, run_count, points_per_run, seed=321):
     # Four groups mirror the boundary conditions in the simulator.
     # Each group stores per-run chunks to keep sampling code simple.
     top_patch = {}
-    top_patch["x"] = []
-    top_patch["y"] = []
-    top_patch["t"] = []
+    top_patch["x_unit"] = []
+    top_patch["y_unit"] = []
+    top_patch["t_unit"] = []
     top_patch["C_target"] = []
-    top_patch["C_true"] = []
 
     top_offpatch = {}
-    top_offpatch["x"] = []
-    top_offpatch["y_boundary"] = []
-    top_offpatch["y_inner"] = []
-    top_offpatch["t"] = []
-    top_offpatch["C_boundary_true"] = []
-    top_offpatch["C_inner_true"] = []
+    top_offpatch["x_unit"] = []
+    top_offpatch["y_boundary_unit"] = []
+    top_offpatch["y_inner_unit"] = []
+    top_offpatch["t_unit"] = []
 
     bottom_sink = {}
-    bottom_sink["x"] = []
-    bottom_sink["y"] = []
-    bottom_sink["t"] = []
+    bottom_sink["x_unit"] = []
+    bottom_sink["y_unit"] = []
+    bottom_sink["t_unit"] = []
     bottom_sink["C_target"] = []
-    bottom_sink["C_true"] = []
 
     side_neumann = {}
-    side_neumann["x_boundary"] = []
-    side_neumann["x_inner"] = []
-    side_neumann["y"] = []
-    side_neumann["t"] = []
-    side_neumann["C_boundary_true"] = []
-    side_neumann["C_inner_true"] = []
+    side_neumann["x_boundary_unit"] = []
+    side_neumann["x_inner_unit"] = []
+    side_neumann["y_unit"] = []
+    side_neumann["t_unit"] = []
 
     for run_row in run_rows:
         entry = get_entry(entries, run_row)
@@ -293,10 +280,10 @@ def sample_boundary_batch(entries, run_count, points_per_run, seed=321):
         meta = load_run_meta(run_dir)
         boundary = load_run_boundary(meta)
 
-        c_snap = fields["C_snap"]
         t_curve = fields["t"]
         mask = fields["patch_mask"]
         d_field = fields["D"]
+        t_den = float(max(1.0, float(t_curve[-1])))
 
         height = int(d_field.shape[0])
         width = int(d_field.shape[1])
@@ -308,6 +295,8 @@ def sample_boundary_batch(entries, run_count, points_per_run, seed=321):
         mask_row = mask[0]
         patch_cols = np.where(mask_row)[0]
         off_cols = np.where(~mask_row)[0]
+        x_den = float(max(1, width - 1))
+        y_den = float(max(1, height - 1))
 
         mode = str(boundary.get("mode", "infinite_dose"))
         c0 = float(boundary.get("C0", 0.0))
@@ -318,7 +307,9 @@ def sample_boundary_batch(entries, run_count, points_per_run, seed=321):
             patch_x = patch_cols[patch_pick]
             patch_t_idx = rng.integers(0, time_count, size=int(points_per_run))
             patch_t = t_curve[patch_t_idx]
-            patch_c_true = c_snap[patch_t_idx, 0, patch_x]
+            patch_x_unit = patch_x.astype(float) / x_den
+            patch_y_unit = np.zeros(int(points_per_run), dtype=float)
+            patch_t_unit = patch_t.astype(float) / t_den
             # Target concentration on top patch comes from boundary schedule.
             patch_c_target = np.zeros(int(points_per_run), dtype=float)
             for i in range(int(points_per_run)):
@@ -331,39 +322,38 @@ def sample_boundary_batch(entries, run_count, points_per_run, seed=321):
                     )
                 )
 
-            top_patch["x"].append(patch_x.astype(float))
-            top_patch["y"].append(np.zeros(int(points_per_run), dtype=float))
-            top_patch["t"].append(patch_t.astype(float))
+            top_patch["x_unit"].append(patch_x_unit)
+            top_patch["y_unit"].append(patch_y_unit)
+            top_patch["t_unit"].append(patch_t_unit)
             top_patch["C_target"].append(patch_c_target)
-            top_patch["C_true"].append(patch_c_true.astype(float))
 
         if len(off_cols) > 0:
             off_pick = rng.integers(0, len(off_cols), size=int(points_per_run))
             off_x = off_cols[off_pick]
             off_t_idx = rng.integers(0, time_count, size=int(points_per_run))
             off_t = t_curve[off_t_idx]
-            # Store boundary/inner pairs for no-flux checks on off-patch top.
-            off_c_boundary = c_snap[off_t_idx, 0, off_x]
-            off_c_inner = c_snap[off_t_idx, 1, off_x]
+            off_x_unit = off_x.astype(float) / x_den
+            off_y_boundary_unit = np.zeros(int(points_per_run), dtype=float)
+            off_y_inner_unit = np.ones(int(points_per_run), dtype=float) / y_den
+            off_t_unit = off_t.astype(float) / t_den
 
-            top_offpatch["x"].append(off_x.astype(float))
-            top_offpatch["y_boundary"].append(np.zeros(int(points_per_run), dtype=float))
-            top_offpatch["y_inner"].append(np.ones(int(points_per_run), dtype=float))
-            top_offpatch["t"].append(off_t.astype(float))
-            top_offpatch["C_boundary_true"].append(off_c_boundary.astype(float))
-            top_offpatch["C_inner_true"].append(off_c_inner.astype(float))
+            top_offpatch["x_unit"].append(off_x_unit)
+            top_offpatch["y_boundary_unit"].append(off_y_boundary_unit)
+            top_offpatch["y_inner_unit"].append(off_y_inner_unit)
+            top_offpatch["t_unit"].append(off_t_unit)
 
         # Bottom sink target is always zero concentration.
         bottom_x = rng.integers(0, width, size=int(points_per_run))
         bottom_t_idx = rng.integers(0, time_count, size=int(points_per_run))
         bottom_t = t_curve[bottom_t_idx]
-        bottom_c_true = c_snap[bottom_t_idx, height - 1, bottom_x]
+        bottom_x_unit = bottom_x.astype(float) / x_den
+        bottom_y_unit = np.full(int(points_per_run), float(height - 1)) / y_den
+        bottom_t_unit = bottom_t.astype(float) / t_den
 
-        bottom_sink["x"].append(bottom_x.astype(float))
-        bottom_sink["y"].append(np.full(int(points_per_run), float(height - 1)))
-        bottom_sink["t"].append(bottom_t.astype(float))
+        bottom_sink["x_unit"].append(bottom_x_unit)
+        bottom_sink["y_unit"].append(bottom_y_unit)
+        bottom_sink["t_unit"].append(bottom_t_unit)
         bottom_sink["C_target"].append(np.zeros(int(points_per_run), dtype=float))
-        bottom_sink["C_true"].append(bottom_c_true.astype(float))
 
         # Side Neumann uses boundary vs inner-pair values on left or right edge.
         side_y = rng.integers(0, height, size=int(points_per_run))
@@ -377,45 +367,39 @@ def sample_boundary_batch(entries, run_count, points_per_run, seed=321):
             if int(side_pick[i]) == 1:
                 side_x_boundary[i] = width - 1
                 side_x_inner[i] = width - 2
-        side_c_boundary = c_snap[side_t_idx, side_y, side_x_boundary]
-        side_c_inner = c_snap[side_t_idx, side_y, side_x_inner]
+        side_x_boundary_unit = side_x_boundary.astype(float) / x_den
+        side_x_inner_unit = side_x_inner.astype(float) / x_den
+        side_y_unit = side_y.astype(float) / y_den
+        side_t_unit = side_t.astype(float) / t_den
 
-        side_neumann["x_boundary"].append(side_x_boundary.astype(float))
-        side_neumann["x_inner"].append(side_x_inner.astype(float))
-        side_neumann["y"].append(side_y.astype(float))
-        side_neumann["t"].append(side_t.astype(float))
-        side_neumann["C_boundary_true"].append(side_c_boundary.astype(float))
-        side_neumann["C_inner_true"].append(side_c_inner.astype(float))
+        side_neumann["x_boundary_unit"].append(side_x_boundary_unit)
+        side_neumann["x_inner_unit"].append(side_x_inner_unit)
+        side_neumann["y_unit"].append(side_y_unit)
+        side_neumann["t_unit"].append(side_t_unit)
 
     # Concatenate per-run chunks into one flat batch per boundary group.
     out = {}
     out["top_patch"] = {}
-    out["top_patch"]["x"] = concat_arrays(top_patch["x"])
-    out["top_patch"]["y"] = concat_arrays(top_patch["y"])
-    out["top_patch"]["t"] = concat_arrays(top_patch["t"])
+    out["top_patch"]["x_unit"] = concat_arrays(top_patch["x_unit"])
+    out["top_patch"]["y_unit"] = concat_arrays(top_patch["y_unit"])
+    out["top_patch"]["t_unit"] = concat_arrays(top_patch["t_unit"])
     out["top_patch"]["C_target"] = concat_arrays(top_patch["C_target"])
-    out["top_patch"]["C_true"] = concat_arrays(top_patch["C_true"])
 
     out["top_offpatch"] = {}
-    out["top_offpatch"]["x"] = concat_arrays(top_offpatch["x"])
-    out["top_offpatch"]["y_boundary"] = concat_arrays(top_offpatch["y_boundary"])
-    out["top_offpatch"]["y_inner"] = concat_arrays(top_offpatch["y_inner"])
-    out["top_offpatch"]["t"] = concat_arrays(top_offpatch["t"])
-    out["top_offpatch"]["C_boundary_true"] = concat_arrays(top_offpatch["C_boundary_true"])
-    out["top_offpatch"]["C_inner_true"] = concat_arrays(top_offpatch["C_inner_true"])
+    out["top_offpatch"]["x_unit"] = concat_arrays(top_offpatch["x_unit"])
+    out["top_offpatch"]["y_boundary_unit"] = concat_arrays(top_offpatch["y_boundary_unit"])
+    out["top_offpatch"]["y_inner_unit"] = concat_arrays(top_offpatch["y_inner_unit"])
+    out["top_offpatch"]["t_unit"] = concat_arrays(top_offpatch["t_unit"])
 
     out["bottom_sink"] = {}
-    out["bottom_sink"]["x"] = concat_arrays(bottom_sink["x"])
-    out["bottom_sink"]["y"] = concat_arrays(bottom_sink["y"])
-    out["bottom_sink"]["t"] = concat_arrays(bottom_sink["t"])
+    out["bottom_sink"]["x_unit"] = concat_arrays(bottom_sink["x_unit"])
+    out["bottom_sink"]["y_unit"] = concat_arrays(bottom_sink["y_unit"])
+    out["bottom_sink"]["t_unit"] = concat_arrays(bottom_sink["t_unit"])
     out["bottom_sink"]["C_target"] = concat_arrays(bottom_sink["C_target"])
-    out["bottom_sink"]["C_true"] = concat_arrays(bottom_sink["C_true"])
 
     out["side_neumann"] = {}
-    out["side_neumann"]["x_boundary"] = concat_arrays(side_neumann["x_boundary"])
-    out["side_neumann"]["x_inner"] = concat_arrays(side_neumann["x_inner"])
-    out["side_neumann"]["y"] = concat_arrays(side_neumann["y"])
-    out["side_neumann"]["t"] = concat_arrays(side_neumann["t"])
-    out["side_neumann"]["C_boundary_true"] = concat_arrays(side_neumann["C_boundary_true"])
-    out["side_neumann"]["C_inner_true"] = concat_arrays(side_neumann["C_inner_true"])
+    out["side_neumann"]["x_boundary_unit"] = concat_arrays(side_neumann["x_boundary_unit"])
+    out["side_neumann"]["x_inner_unit"] = concat_arrays(side_neumann["x_inner_unit"])
+    out["side_neumann"]["y_unit"] = concat_arrays(side_neumann["y_unit"])
+    out["side_neumann"]["t_unit"] = concat_arrays(side_neumann["t_unit"])
     return out
