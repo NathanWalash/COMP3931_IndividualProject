@@ -2,6 +2,12 @@
 
 Specification status: locked for implementation phase (can be revised only by explicit decision change).
 
+## Current Status Snapshot
+
+1. Black-box training/evaluation pipeline is in place with scalar and curve plots.
+2. PINN training and evaluation scripts are in place, and PINN evaluation now writes the same curve plot types as black-box.
+3. Main remaining comparison gap is unified PINN scalar parity/residual outputs for direct side-by-side reporting.
+
 ## 1. Purpose
 
 1. Define the final implementation plan for the modelling phase.

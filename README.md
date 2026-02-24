@@ -150,8 +150,12 @@ Export behavior:
 Subset evaluation/training by run index (inclusive):
 - QC:
   - `python -m scripts.sim.qc_dataset --processed_dir data/processed --out_dir outputs/qc/processed --run_start_index 0 --run_end_index 499`
-- Train:
+- Train (black-box):
   - `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --run_start_index 0 --run_end_index 499`
+- Train (PINN):
+  - `python -m scripts.ml.train_pinn --ml_dir data/processed/ml --config configs/ml/pinn_v1.yaml --out_dir outputs/ml/pinn --device cuda --run_start_index 0 --run_end_index 499`
+- Evaluate (PINN; writes prediction bundles + curve plots):
+  - `python -m scripts.ml.evaluate_pinn --ml_dir data/processed/ml --run_dir outputs/ml/pinn --out_dir outputs/ml/pinn_eval --device cuda --run_start_index 0 --run_end_index 499`
 
 ### 6) Runtime profiling
 
@@ -194,6 +198,10 @@ Main simulation configs:
 - `configs/sim/v3_literature_dataset_spec.yaml` (dataset spec)
 - `configs/sim/v3_layers_literature_clearance.yaml` (clearance-aware literature base)
 - `configs/sim/v3_literature_dataset_spec_clearance.yaml` (clearance-sensitivity dataset spec)
+
+ML configs:
+- `configs/ml/pinn_smoke.yaml`
+- `configs/ml/pinn_v1.yaml`
 
 Key sections:
 - `grid`: `H, W, dx, dt, T, save_every`

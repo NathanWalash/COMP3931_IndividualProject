@@ -53,7 +53,7 @@ def load_run_grid(meta):
 
 def choose_run_rows(rng, row_count, run_count):
     # Sample run rows with replacement for stochastic mini-batches.
-    picks = rng.integers(0,bint(row_count), size=int(run_count))
+    picks = rng.integers(0, int(row_count), size=int(run_count))
     out = []
     for value in picks:
         out.append(int(value))

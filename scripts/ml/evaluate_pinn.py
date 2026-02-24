@@ -12,6 +12,7 @@ from scripts.ml.train_pinn import (
     load_pinn_config,
     normalize_feature_matrix,
 )
+from skin_diffusion.ml_curve_plots import plot_curve_error_over_time, plot_curve_examples
 from skin_diffusion.pinn_dataset import (
     load_run_fields,
     load_run_grid,
@@ -198,6 +199,15 @@ def save_split_prediction(out_dir, split_name, split_result):
     return out_path
 
 
+def plot_suffix_from_split_name(split_name):
+    # Keep plot names aligned with blackbox output names.
+    if split_name == "id_test":
+        return "id"
+    if split_name == "ood_primary":
+        return "ood"
+    return split_name
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--ml_dir", required=True)
@@ -288,7 +298,10 @@ def main():
         split_feature_map[split_name] = split_features_norm
 
     saved_files = {}
+    plot_files = {}
     split_rows = {}
+    plot_dir = out_dir / "plots"
+    ensure_dir(plot_dir)
 
     # Run one full pass per split and write one prediction bundle per split.
     for split_name in split_map:
@@ -301,6 +314,18 @@ def main():
         saved_path = save_split_prediction(out_dir, split_name, split_result)
         saved_files[split_name] = str(saved_path.resolve())
         split_rows[split_name] = int(split_result["rows"])
+
+        split_suffix = plot_suffix_from_split_name(split_name)
+        examples_path = plot_dir / f"curve_examples_{split_suffix}.png"
+        error_path = plot_dir / f"curve_error_over_time_{split_suffix}.png"
+        title_suffix = split_suffix.upper()
+
+        plot_curve_examples(split_result["t"], split_result["J_true"], split_result["J_pred"], examples_path, f"J(t) examples ({title_suffix})", max_examples=9)
+        plot_curve_error_over_time(split_result["t"], split_result["J_true"], split_result["J_pred"], error_path, f"Curve error over time ({title_suffix})")
+
+        plot_files[split_name] = {}
+        plot_files[split_name]["curve_examples"] = str(examples_path.resolve())
+        plot_files[split_name]["curve_error_over_time"] = str(error_path.resolve())
 
     runtime = {}
     runtime["status"] = "evaluated"
@@ -316,6 +341,7 @@ def main():
     runtime["max_rows_per_split"] = args.max_rows_per_split
     runtime["split_rows"] = split_rows
     runtime["prediction_files"] = saved_files
+    runtime["plot_files"] = plot_files
     runtime["seconds"] = float(time.time() - t0)
 
     write_json(out_dir / "runtime.json", runtime)
