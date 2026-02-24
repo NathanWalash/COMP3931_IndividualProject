@@ -1,0 +1,39 @@
+version: pinn_v1_scaffold
+
+# This file is the starting point for PINN training settings.
+description: "PINN v1 scaffold config aligned with V3 finite-dose dataset"
+
+model:
+  hidden_layers: 4
+  hidden_width: 128
+  activation: tanh
+  output_activation: softplus
+
+training:
+  seed: 321
+  epochs: 300
+  batch_size_data: 2048
+  batch_size_physics: 2048
+  grad_clip_norm: 1.0
+  early_stop_patience: 30
+
+optimizer:
+  name: adam
+  lr: 0.001
+  weight_decay: 0.0
+
+loss_weights:
+  data_curve: 1.0
+  pde: 1.0
+  bc: 1.0
+  ic: 1.0
+  nonnegativity: 0.1
+
+physics:
+  collocation_points_per_run: 2048
+  boundary_points_per_run: 1024
+  initial_points_per_run: 1024
+
+runtime:
+  device: auto
+  num_workers: 0
