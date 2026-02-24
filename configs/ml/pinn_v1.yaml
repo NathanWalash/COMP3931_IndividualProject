@@ -11,11 +11,14 @@ model:
 
 training:
   seed: 321
-  epochs: 250
+  epochs: 200
   batch_size_data: 2048
   batch_size_physics: 2048
   grad_clip_norm: 1.0
   early_stop_patience: 30
+  early_stop_min_delta: 1.0e-4
+  early_stop_metric: curve_rel_l2
+  curve_eval_every: 5
 
 optimizer:
   name: adam
@@ -26,13 +29,22 @@ loss_weights:
   data_curve: 1.0
   pde: 1.0
   bc: 1.0
-  ic: 1.0
+  ic: 0.2
+  flux_curve: 2.0
   nonnegativity: 0.1
 
 physics:
   collocation_points_per_run: 2048
   boundary_points_per_run: 1024
   initial_points_per_run: 1024
+  flux_runs_per_batch: 2
+  flux_time_points_per_run: 32
+  flux_time_weighted_fraction: 0.7
+  flux_time_weight_power: 1.0
+  flux_rel_eps_quantile: 90.0
+  flux_rel_residual_clip: 20.0
+  curve_eval_runs: 16
+  curve_eval_time_points: 96
 
 runtime:
   device: auto
