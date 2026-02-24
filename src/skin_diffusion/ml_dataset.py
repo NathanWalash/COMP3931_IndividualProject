@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import numpy as np
@@ -8,7 +7,7 @@ from skin_diffusion.dataset_spec import (
     DEFAULT_SCALAR_TARGET_NAMES,
     SUPPORTED_SCALAR_TARGET_NAMES,
 )
-from skin_diffusion.utils import ensure_dir, write_json
+from skin_diffusion.utils import ensure_dir, read_json, write_json
 
 
 FEATURE_NAMES = [
@@ -33,11 +32,6 @@ FEATURE_NAMES = [
     "D_top_mean",
     "D_bottom_mean",
 ]
-
-
-def load_json_file(path):
-    # small helper so json reads are consistent
-    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def patch_offset_to_float(value):
@@ -195,7 +189,7 @@ def build_id_strata(index_entries):
     patch_offset_labels = []
 
     for entry in index_entries:
-        meta = load_json_file(entry["meta_path"])
+        meta = read_json(entry["meta_path"])
         base = read_features_from_meta(meta)
 
         width_value = float(base["patch_width"])
@@ -298,8 +292,8 @@ def build_ml_split_from_arrays(J, t, index_entries, scalar_target_names):
     row_meta = []
 
     for entry in index_entries:
-        meta = load_json_file(entry["meta_path"])
-        metrics = load_json_file(entry["metrics_path"])
+        meta = read_json(entry["meta_path"])
+        metrics = read_json(entry["metrics_path"])
         base = read_features_from_meta(meta)
         d_stats = read_d_stats_from_run(entry["run_dir"])
 
@@ -331,7 +325,7 @@ def export_ml_ready_dataset(processed_dir, out_dir):
     out_dir = Path(out_dir)
     ensure_dir(out_dir)
 
-    index = load_json_file(processed_dir / "index.json")
+    index = read_json(processed_dir / "index.json")
 
     # keep names next to arrays for training scripts
     feature_names = FEATURE_NAMES

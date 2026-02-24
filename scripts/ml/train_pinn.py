@@ -1,18 +1,12 @@
 import argparse
-import json
 import time
 from pathlib import Path
 
 import numpy as np
 
 from skin_diffusion.dataset_spec import load_yaml_file
-from skin_diffusion.utils import ensure_dir, write_json
-
-
-def load_json(path):
-    # Read one JSON file into a dict.
-    text = Path(path).read_text(encoding="utf-8")
-    return json.loads(text)
+from skin_diffusion.pinn_dataset import load_split_entries
+from skin_diffusion.utils import ensure_dir, read_json, write_json
 
 
 def load_split_shapes(path):
@@ -39,7 +33,7 @@ def validate_ml_dir(ml_dir):
         if not path.exists():
             raise ValueError(f"Missing required file: {path}")
 
-    meta = load_json(ml_dir / "meta.json")
+    meta = read_json(ml_dir / "meta.json")
 
     scalar_target_names = meta.get("scalar_target_names", [])
     feature_names = meta.get("feature_names", [])
@@ -143,6 +137,8 @@ def main():
     parser.add_argument("--config", default="configs/ml/pinn_v1.yaml")
     parser.add_argument("--device", default=None)
     parser.add_argument("--fail_if_no_torch", action="store_true")
+    parser.add_argument("--run_start_index", type=int, default=None)
+    parser.add_argument("--run_end_index", type=int, default=None)
     args = parser.parse_args()
 
     t0 = time.time()
@@ -165,6 +161,14 @@ def main():
     if args.fail_if_no_torch and not torch_info["available"]:
         raise ValueError(f"torch is not available: {torch_info['import_error']}")
 
+    # Use ML split mapping so PINN and black-box share the same split rows.
+    train_entries = load_split_entries(
+        ml_dir=ml_dir,
+        split_name="id_train",
+        run_start_index=args.run_start_index,
+        run_end_index=args.run_end_index,
+    )
+
     chosen_device = choose_device(args.device, pinn_cfg["runtime"].get("device", "auto"), torch_info)
 
     runtime = {}
@@ -173,6 +177,10 @@ def main():
     runtime["config"] = str(config_path.resolve())
     runtime["device"] = chosen_device
     runtime["torch"] = torch_info
+    runtime["run_index_filter"] = {
+        "start": args.run_start_index,
+        "end": args.run_end_index,
+    }
     runtime["seconds"] = float(time.time() - t0)
 
     summary = {}
@@ -180,6 +188,7 @@ def main():
     summary["description"] = "PINN scaffold validated dataset paths and config."
     summary["feature_count"] = int(len(data_summary["feature_names"]))
     summary["scalar_target_count"] = int(len(data_summary["scalar_target_names"]))
+    summary["train_rows"] = int(len(train_entries))
     summary["splits"] = data_summary["splits"]
 
     write_json(out_dir / "runtime.json", runtime)
