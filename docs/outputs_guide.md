@@ -34,7 +34,8 @@ Notes:
 - `assemble_dataset --lightweight` writes processed split files with only `J` and `t`.
 - `export_ml_dataset` still works in lightweight mode because tabular features come
   from per-run `meta.json` and D-field summaries read from each run bundle.
-- `assemble_dataset`, `qc_dataset`, and `train_blackbox` support optional
+- `assemble_dataset`, `qc_dataset`, `train_blackbox`, `train_pinn`, and
+  `evaluate_pinn` support optional
   run slicing with `--run_start_index` and `--run_end_index` (inclusive).
 
 ## QC outputs
@@ -78,3 +79,15 @@ Black-box metadata notes:
   different ML feature schemas are easy to identify before comparison.
 - `metrics_ood.json` is always written; in ID-only runs it reports
   `"available": false`.
+
+## PINN outputs
+
+- Training run folder: `outputs/ml/<pinn_run>/`
+  - `checkpoints/best.pt`, `checkpoints/latest.pt`
+  - `runtime.json` with training config, losses, and split rows
+- Evaluation run folder: `outputs/ml/<pinn_eval>/`
+  - `pred_id_test.npz` (and `pred_ood_primary.npz` when OOD exists)
+  - `runtime.json` with `prediction_files` and `plot_files`
+  - `plots/curve_examples_id.png`
+  - `plots/curve_error_over_time_id.png`
+  - OOD plot variants when OOD exists

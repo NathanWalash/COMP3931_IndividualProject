@@ -1,6 +1,5 @@
 import numpy as np
 from pathlib import Path
-import json
 
 from tqdm import tqdm
 
@@ -8,7 +7,7 @@ from sklearn.model_selection import train_test_split
 
 from skin_diffusion.metrics import compute_bottom_flux
 from skin_diffusion.run_utils import run_simulation
-from skin_diffusion.utils import ensure_dir, write_json
+from skin_diffusion.utils import ensure_dir, read_json, write_json
 
 
 def to_dict(obj):
@@ -38,7 +37,7 @@ def load_run_bundle(run_dir, include_full_fields=True):
     fields = np.load(run_dir / "fields.npz")
     meta_path = run_dir / "meta.json"
     metrics = run_dir / "metrics.json"
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta = read_json(meta_path)
 
     data = {}
     if include_full_fields:

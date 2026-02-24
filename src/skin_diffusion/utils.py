@@ -19,3 +19,9 @@ def write_json(path, obj):
     # small helper for metadata
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2)
+
+
+def read_json(path):
+    # small helper for reading json files
+    text = Path(path).read_text(encoding="utf-8")
+    return json.loads(text)

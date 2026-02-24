@@ -53,6 +53,26 @@ What it checks:
 - Diffusion dt limit.
 - Reaction dt limit.
 
+## tests/test_dataset.py
+
+Purpose:
+- Check dataset assembly helpers and run-bundle loading logic.
+
+## tests/test_dataset_spec.py
+
+Purpose:
+- Validate dataset-spec parsing, including scalar target selection.
+
+## tests/test_ml_dataset.py
+
+Purpose:
+- Validate ML export feature/target extraction and split alignment.
+
+## tests/test_pinn_dataset.py
+
+Purpose:
+- Validate PINN sampling utilities and PINN split row mapping.
+
 ## Current test gaps
 
-- No end-to-end test for saved run bundles or dataset assembly.
+- No full pipeline end-to-end integration test (generate -> assemble -> export -> train -> evaluate).

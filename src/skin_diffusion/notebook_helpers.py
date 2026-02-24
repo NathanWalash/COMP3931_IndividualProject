@@ -1,10 +1,10 @@
-import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from skin_diffusion.utils import read_json
 
 
 def setup_repo_root(marker="pyproject.toml"):
@@ -138,4 +138,4 @@ def assert_paths_exist(paths):
 
 
 def load_json(path):
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    return read_json(path)
