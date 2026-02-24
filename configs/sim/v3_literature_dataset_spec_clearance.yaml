@@ -76,17 +76,19 @@ splits:
 
 targets:
   # Primary set used for ML/PINN training reports.
-  # Keep Tlag secondary for finite-dose runs.
+  # Keep one delivered-mass style scalar in primary to avoid redundancy.
+  # In 24h runs, AUC_J and M_delivered_24h are effectively equivalent.
+  # Keep Tlag and AUC_J as secondary for finite-dose reporting.
   primary:
     - J_curve
     - P
     - J_ss
-    - AUC_J
     - J_peak
     - t_peak
     - M_delivered_24h
   secondary:
     - Tlag
+    - AUC_J
   demonstration:
     - full_field_single_run
 

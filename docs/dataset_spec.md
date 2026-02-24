@@ -78,7 +78,7 @@ Important:
 - each file contains:
   - `X`: tabular features
   - `y_scalar`: scalar targets selected from dataset-spec `targets.primary`
-    (e.g. `P`, `J_ss`, `AUC_J`, `J_peak`, `t_peak`, `M_delivered_24h`)
+    (e.g. `P`, `J_ss`, `J_peak`, `t_peak`, `M_delivered_24h`)
   - `J`: flux curve
   - `t`: time grid
 
@@ -111,6 +111,8 @@ Split behavior during export:
 - Scalar target policy is read from `data/processed/index.json`:
   - if `dataset_spec.scalar_primary` exists, that list is used
   - otherwise export falls back to `[P, Tlag, J_ss]` for compatibility
+  - for the current V3 specs, `AUC_J` is kept secondary to avoid overlap with
+    `M_delivered_24h` in 24h-horizon runs
 - Export writes `meta.json` with:
   - `feature_names`
   - `scalar_target_names`
