@@ -34,8 +34,8 @@ Notes:
 - `assemble_dataset --lightweight` writes processed split files with only `J` and `t`.
 - `export_ml_dataset` still works in lightweight mode because tabular features come
   from per-run `meta.json` and D-field summaries read from each run bundle.
-- `assemble_dataset`, `qc_dataset`, `train_blackbox`, `train_pinn`, and
-  `evaluate_pinn` support optional
+- `assemble_dataset`, `qc_dataset`, `train_blackbox`, and `train_pinn_discrete`
+  support optional
   run slicing with `--run_start_index` and `--run_end_index` (inclusive).
 
 ## QC outputs
@@ -53,25 +53,25 @@ Notes:
 
 ## Black-box plot outputs
 
-- `outputs/ml/<name>/plots/scalar_parity_id.png`
+- `outputs/ml/<name>/plots/id/scalar_parity.png`
   - dynamic subplot grid (up to 3 columns), with `n`, `MAE`, `RMSE`, `R2` box.
   - log axes are used automatically for strictly positive targets with wide range.
-- `outputs/ml/<name>/plots/scalar_parity_ood.png` (only when OOD exists)
+- `outputs/ml/<name>/plots/ood_primary/scalar_parity.png` (only when OOD exists)
   - same format as ID, for direct visual comparison.
-- `outputs/ml/<name>/plots/scalar_residuals_id.png`
+- `outputs/ml/<name>/plots/id/scalar_residuals.png`
   - residual histograms with zero-line and mean-line.
   - relative error (%) is shown for strictly positive targets; otherwise absolute
     residual (`pred - true`) is shown.
-- `outputs/ml/<name>/plots/scalar_residuals_ood.png` (only when OOD exists)
+- `outputs/ml/<name>/plots/ood_primary/scalar_residuals.png` (only when OOD exists)
   - same format as ID, for shift detection between ID and OOD.
-- `outputs/ml/<name>/plots/curve_examples_id.png` (up to 9 examples in 3x3)
+- `outputs/ml/<name>/plots/id/curve_examples.png` (up to 9 examples in 3x3)
   - each panel reports sample index, MAE, and relative L2 error.
-- `outputs/ml/<name>/plots/curve_examples_ood.png` (up to 9 examples in 3x3, only when OOD exists)
-- `outputs/ml/<name>/plots/curve_error_over_time_id.png`
+- `outputs/ml/<name>/plots/ood_primary/curve_examples.png` (up to 9 examples in 3x3, only when OOD exists)
+- `outputs/ml/<name>/plots/id/curve_error_over_time.png`
   - two-panel figure: absolute error (top) and relative error % (bottom), each
     with mean and 10-90 percentile band.
   - percentile bounds are also shown as faint dotted lines for readability.
-- `outputs/ml/<name>/plots/curve_error_over_time_ood.png` (only when OOD exists)
+- `outputs/ml/<name>/plots/ood_primary/curve_error_over_time.png` (only when OOD exists)
   - same format as ID, for robustness comparison.
 
 Black-box metadata notes:
@@ -79,15 +79,37 @@ Black-box metadata notes:
   different ML feature schemas are easy to identify before comparison.
 - `metrics_ood.json` is always written; in ID-only runs it reports
   `"available": false`.
+- Black-box also writes comparison-aligned files:
+  - `metrics_id_val.json`
+  - `pred_id_val.npz`, `pred_id_test.npz`
+  - `diagnostics/physics/physics_diag_id_{val,test}.csv`
+  - `diagnostics/physics/physics_diag_id_{val,test}_summary.json`
+  - `diagnostics/physics/physics_diag_id_{val,test}_worst.json`
 
-## PINN outputs
+## Hybrid PINN outputs
 
-- Training run folder: `outputs/ml/<pinn_run>/`
-  - `checkpoints/best.pt`, `checkpoints/latest.pt`
-  - `runtime.json` with training config, losses, and split rows
-- Evaluation run folder: `outputs/ml/<pinn_eval>/`
-  - `pred_id_test.npz` (and `pred_ood_primary.npz` when OOD exists)
-  - `runtime.json` with `prediction_files` and `plot_files`
-  - `plots/curve_examples_id.png`
-  - `plots/curve_error_over_time_id.png`
-  - OOD plot variants when OOD exists
+- Run folder: `outputs/ml/<pinn_discrete_run>/`
+  - Core files: `summary.json`, `history.json`, `correction_head.pt`
+  - Comparison report: `diagnostics/comparison_report.json`
+  - Metric bundles: `metrics_id_val.json`, `metrics_id.json`, `metrics_ood.json`
+    - each stage block (`stageA`, `stageB`, `stageC`) now contains both
+      `curve` and `scalar` metrics.
+  - Prediction bundles: `pred_id_val.npz`, `pred_id_test.npz`, optional `pred_ood_primary.npz`
+  - Physics diagnostics:
+    - `diagnostics/physics/physics_diag_id_{val,test}.csv`
+    - `diagnostics/physics/physics_diag_id_{val,test}_summary.json`
+    - `diagnostics/physics/physics_diag_id_{val,test}_worst.json`
+  - Curve plots in `plots/` by split folder (`id`, `id_val`, optional `ood_primary`):
+    - final-stage aliases: `curve_examples.png`, `curve_error_over_time.png`
+    - stage variants: `curve_examples_stage{A,B,C}.png`, `curve_error_over_time_stage{A,B,C}.png`
+  - Scalar plots in `plots/id/` (and `plots/ood_primary/` when OOD exists):
+    - `scalar_parity.png`
+    - `scalar_residuals.png`
+
+Physics diagnostic metric notes:
+- `*_ic_flux_abs_error`: `|J_pred(t=0) - J_true(t=0)|`.
+- `*_bc_bottom_flux_rmse`: bottom-flux mismatch vs simulator curve (`J_true`).
+- `*_pde_stageA_flux_rmse`: distance to Stage A coarse-PDE curve (PDE-manifold proxy).
+- `*_curve_relative_l2`: per-run curve error used for worst-case ranking.
+- `truth_reference.*`: BC/IC residual checks directly measured from saved `C_snap`
+  (`top patch`, `top off-patch Neumann`, `bottom sink`, `side Neumann`, interior IC).

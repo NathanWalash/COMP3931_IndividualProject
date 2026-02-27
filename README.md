@@ -152,10 +152,17 @@ Subset evaluation/training by run index (inclusive):
   - `python -m scripts.sim.qc_dataset --processed_dir data/processed --out_dir outputs/qc/processed --run_start_index 0 --run_end_index 499`
 - Train (black-box):
   - `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --run_start_index 0 --run_end_index 499`
-- Train (PINN):
-  - `python -m scripts.ml.train_pinn --ml_dir data/processed/ml --config configs/ml/pinn_v1.yaml --out_dir outputs/ml/pinn --device cuda --run_start_index 0 --run_end_index 499`
-- Evaluate (PINN; writes prediction bundles + curve plots):
-  - `python -m scripts.ml.evaluate_pinn --ml_dir data/processed/ml --run_dir outputs/ml/pinn --out_dir outputs/ml/pinn_eval --device cuda --run_start_index 0 --run_end_index 499`
+  - optional staged local run bundles:
+    `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --run_root_override /tmp/staged_local_dataset/v3_literature_dataset_clearance_v1/dataset`
+- Train (hybrid PINN, discrete-physics):
+  - `python -m scripts.ml.train_pinn_discrete --ml_dir data/processed/ml --out_dir outputs/ml/pinn_discrete --device cuda --run_start_index 0 --run_end_index 499`
+  - optional staged local run bundles:
+    `python -m scripts.ml.train_pinn_discrete --ml_dir data/processed/ml --out_dir outputs/ml/pinn_discrete --device cuda --run_root_override /tmp/staged_local_dataset/v3_literature_dataset_clearance_v1/dataset`
+  - optional OOD row cap (OOD is auto-used when `ood_primary` exists):
+    `python -m scripts.ml.train_pinn_discrete --ml_dir data/processed/ml --out_dir outputs/ml/pinn_discrete --max_ood_rows 128`
+  - both blackbox and hybrid write aligned prediction + physics diagnostics
+    files (`pred_id_*.npz`, optional `pred_ood_primary.npz`,
+    `diagnostics/physics/physics_diag_*`) for ID val/test comparison.
 
 ### 6) Runtime profiling
 
@@ -200,8 +207,8 @@ Main simulation configs:
 - `configs/sim/v3_literature_dataset_spec_clearance.yaml` (clearance-sensitivity dataset spec)
 
 ML configs:
-- `configs/ml/pinn_smoke.yaml`
-- `configs/ml/pinn_v1.yaml`
+- No static PINN YAML config is required for the hybrid path.
+- Use CLI flags in `scripts/ml/train_pinn_discrete.py` for runtime control.
 
 Key sections:
 - `grid`: `H, W, dx, dt, T, save_every`
