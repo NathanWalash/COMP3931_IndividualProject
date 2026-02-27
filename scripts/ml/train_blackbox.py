@@ -11,35 +11,21 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.preprocessing import StandardScaler
 
-from xgboost import XGBRegressor
 from skin_diffusion.ml_curve_plots import plot_curve_error_over_time, plot_curve_examples
+from skin_diffusion.ml_metrics import compute_curve_metrics
+from skin_diffusion.ml_physics_diagnostics import (
+    build_worst_case_report,
+    compute_split_physics_diagnostics,
+    write_rows_csv,
+)
+from skin_diffusion.ml_run_dataset import remap_run_dir
+from skin_diffusion.run_index import in_index_range, run_index_from_path
+from xgboost import XGBRegressor
 
 
 def load_json(path):
     text = Path(path).read_text(encoding="utf-8")
     return json.loads(text)
-
-
-def run_index_from_path(run_dir):
-    # Parse run index from run directory path.
-    name = Path(run_dir).name
-    if not name.startswith("run_"):
-        return None
-    try:
-        return int(name.split("_", 1)[1])
-    except ValueError:
-        return None
-
-
-def in_index_range(run_idx, start_idx, end_idx):
-    # Inclusive range filter; None means unbounded.
-    if run_idx is None:
-        return False
-    if start_idx is not None and run_idx < start_idx:
-        return False
-    if end_idx is not None and run_idx > end_idx:
-        return False
-    return True
 
 
 def load_target_names(ml_dir):
@@ -54,7 +40,10 @@ def load_target_names(ml_dir):
         raise ValueError("meta.json is missing scalar_target_names list")
     if len(names) == 0:
         raise ValueError("scalar_target_names list is empty in meta.json")
-    return [str(name) for name in names]
+    target_names = []
+    for name in names:
+        target_names.append(str(name))
+    return target_names
 
 
 def load_feature_names(ml_dir):
@@ -69,7 +58,10 @@ def load_feature_names(ml_dir):
         raise ValueError("meta.json is missing feature_names list")
     if len(names) == 0:
         raise ValueError("feature_names list is empty in meta.json")
-    return [str(name) for name in names]
+    feature_names = []
+    for name in names:
+        feature_names.append(str(name))
+    return feature_names
 
 
 def load_npz(path):
@@ -109,6 +101,16 @@ def filter_split_by_run_index(split_data, split_index_entries, start_idx, end_id
     return filtered, filtered_index
 
 
+def remap_entry_run_dirs(entries, run_root_override):
+    # Keep split index rows but rewrite run_dir to staged-local location when requested.
+    remapped = []
+    for entry in entries:
+        row = dict(entry)
+        row["run_dir"] = remap_run_dir(entry["run_dir"], run_root_override)
+        remapped.append(row)
+    return remapped
+
+
 def rel_percent_error(y_true, y_pred, eps=1e-12):
     # Mean relative error in percent.
     denom = np.abs(y_true) + eps
@@ -129,30 +131,6 @@ def compute_scalar_metrics(y_true, y_pred):
     metrics["rmse"] = float(np.sqrt(mean_squared_error(y_true, y_pred)))
     metrics["r2"] = safe_r2(y_true, y_pred)
     metrics["relative_error_percent"] = rel_percent_error(y_true, y_pred)
-    return metrics
-
-
-def compute_curve_metrics(J_true, J_pred, t, eps=1e-12):
-    # Curve metrics across all time points.
-    diff = J_pred - J_true
-
-    iae_values = []
-    for i in range(J_true.shape[0]):
-        value = float(np.trapezoid(np.abs(diff[i]), x=t[i]))
-        iae_values.append(value)
-
-    true_flat = J_true.ravel()
-    pred_flat = J_pred.ravel()
-    pearson_r = float("nan")
-    if len(true_flat) > 1:
-        pearson_r = float(np.corrcoef(true_flat, pred_flat)[0, 1])
-
-    metrics = {}
-    metrics["mae"] = float(np.mean(np.abs(diff)))
-    metrics["rmse"] = float(np.sqrt(np.mean(diff**2)))
-    metrics["relative_l2"] = float(np.linalg.norm(diff) / (np.linalg.norm(J_true) + eps))
-    metrics["integrated_absolute_error"] = float(np.mean(iae_values))
-    metrics["pearson_r"] = pearson_r
     return metrics
 
 
@@ -653,14 +631,21 @@ def run_training(
     min_rows_for_xgboost,
     run_start_index=None,
     run_end_index=None,
+    run_root_override=None,
+    worst_case_top_n=10,
 ):
     # Run one full train/evaluate pass and save outputs.
     # Outputs: per-split metrics, runtime info, compact summary, and plots.
     ml_dir = Path(ml_dir)
     out_dir = Path(out_dir)
     out_plot = out_dir / "plots"
+    out_plot_id = out_plot / "id"
+    out_plot_ood = out_plot / "ood_primary"
+    out_diag = out_dir / "diagnostics"
+    out_diag_physics = out_diag / "physics"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_plot.mkdir(parents=True, exist_ok=True)
+    out_plot_id.mkdir(parents=True, exist_ok=True)
+    out_diag_physics.mkdir(parents=True, exist_ok=True)
 
     target_names = load_target_names(ml_dir)
     feature_names = load_feature_names(ml_dir)
@@ -677,31 +662,34 @@ def run_training(
         ood = load_npz(ood_path)
         has_ood = True
 
-    id_train, _ = filter_split_by_run_index(
+    id_train, id_train_index_unused = filter_split_by_run_index(
         id_train,
         split_index_map["id_train"]["index"],
         run_start_index,
         run_end_index,
     )
-    id_val, _ = filter_split_by_run_index(
+    id_val, id_val_index = filter_split_by_run_index(
         id_val,
         split_index_map["id_val"]["index"],
         run_start_index,
         run_end_index,
     )
-    id_test, _ = filter_split_by_run_index(
+    id_test, id_test_index = filter_split_by_run_index(
         id_test,
         split_index_map["id_test"]["index"],
         run_start_index,
         run_end_index,
     )
     if has_ood:
-        ood, _ = filter_split_by_run_index(
+        ood, ood_index_unused = filter_split_by_run_index(
             ood,
             split_index_map["ood_primary"]["index"],
             run_start_index,
             run_end_index,
         )
+
+    id_val_entries = remap_entry_run_dirs(id_val_index, run_root_override)
+    id_test_entries = remap_entry_run_dirs(id_test_index, run_root_override)
 
     if id_train["X"].shape[0] == 0:
         raise ValueError("No id_train rows left after run-index filtering")
@@ -758,11 +746,17 @@ def run_training(
     )
     curve_train_seconds = float(time.time() - t1)
 
+    J_val_pred = predict_curve_model(pca, curve_transform, curve_model, X_val)
     J_id_pred = predict_curve_model(pca, curve_transform, curve_model, X_test)
     if has_ood:
         J_ood_pred = predict_curve_model(pca, curve_transform, curve_model, X_ood)
     else:
         J_ood_pred = None
+
+    # Validation curve metrics are saved for apples-to-apples hybrid comparisons.
+    metrics_id_val = {}
+    metrics_id_val["rows"] = int(id_val["X"].shape[0])
+    metrics_id_val["curve"] = compute_curve_metrics(id_val["J"], J_val_pred, id_val["t"])
 
     metrics_id = {}
     metrics_id["rows"] = int(id_test["X"].shape[0])
@@ -780,6 +774,74 @@ def run_training(
         metrics_ood["rows"] = 0
         metrics_ood["scalar"] = {}
         metrics_ood["curve"] = {}
+
+    # Save curve bundles so blackbox and hybrid can be inspected with the same loaders.
+    np.savez(
+        out_dir / "pred_id_val.npz",
+        j_true=id_val["J"],
+        j_pred=J_val_pred,
+        t=id_val["t"],
+    )
+    np.savez(
+        out_dir / "pred_id_test.npz",
+        j_true=id_test["J"],
+        j_pred=J_id_pred,
+        t=id_test["t"],
+    )
+
+    # Physics diagnostics on ID val/test use run bundles referenced in ml/meta split index.
+    print("computing physics diagnostics for id_val ...")
+    physics_val_rows, physics_val_summary = compute_split_physics_diagnostics(
+        entries=id_val_entries,
+        split_name="id_val",
+        prediction_map={
+            "truth": id_val["J"],
+            "blackbox": J_val_pred,
+        },
+        progress_label="physics_id_val",
+        truth_key="truth",
+    )
+    print("computing physics diagnostics for id_test ...")
+    physics_test_rows, physics_test_summary = compute_split_physics_diagnostics(
+        entries=id_test_entries,
+        split_name="id_test",
+        prediction_map={
+            "truth": id_test["J"],
+            "blackbox": J_id_pred,
+        },
+        progress_label="physics_id_test",
+        truth_key="truth",
+    )
+    write_rows_csv(out_diag_physics / "physics_diag_id_val.csv", physics_val_rows)
+    write_rows_csv(out_diag_physics / "physics_diag_id_test.csv", physics_test_rows)
+    (out_diag_physics / "physics_diag_id_val_summary.json").write_text(
+        json.dumps(physics_val_summary, indent=2),
+        encoding="utf-8",
+    )
+    (out_diag_physics / "physics_diag_id_test_summary.json").write_text(
+        json.dumps(physics_test_summary, indent=2),
+        encoding="utf-8",
+    )
+    worst_val = build_worst_case_report(
+        physics_val_rows,
+        split_name="id_val",
+        stage_name="blackbox",
+        top_n=worst_case_top_n,
+    )
+    worst_test = build_worst_case_report(
+        physics_test_rows,
+        split_name="id_test",
+        stage_name="blackbox",
+        top_n=worst_case_top_n,
+    )
+    (out_diag_physics / "physics_diag_id_val_worst.json").write_text(
+        json.dumps(worst_val, indent=2),
+        encoding="utf-8",
+    )
+    (out_diag_physics / "physics_diag_id_test_worst.json").write_text(
+        json.dumps(worst_test, indent=2),
+        encoding="utf-8",
+    )
 
     runtime = {}
     runtime["scalar_train_seconds"] = scalar_train_seconds
@@ -815,6 +877,14 @@ def run_training(
         "start": run_start_index,
         "end": run_end_index,
     }
+    runtime["run_root_override"] = run_root_override
+    # Explicit pointers make downstream report tooling simpler.
+    runtime["physics_diagnostics"] = {
+        "id_val_summary_file": "diagnostics/physics/physics_diag_id_val_summary.json",
+        "id_test_summary_file": "diagnostics/physics/physics_diag_id_test_summary.json",
+        "id_val_worst_file": "diagnostics/physics/physics_diag_id_val_worst.json",
+        "id_test_worst_file": "diagnostics/physics/physics_diag_id_test_worst.json",
+    }
 
     # Keep a short summary for quick checks
     summary = {}
@@ -828,6 +898,7 @@ def run_training(
     summary["id_curve_pearson_r"] = metrics_id["curve"]["pearson_r"]
     summary["ood_curve_pearson_r"] = metrics_ood["curve"].get("pearson_r")
 
+    (out_dir / "metrics_id_val.json").write_text(json.dumps(metrics_id_val, indent=2), encoding="utf-8")
     (out_dir / "metrics_id.json").write_text(json.dumps(metrics_id, indent=2), encoding="utf-8")
     (out_dir / "metrics_ood.json").write_text(json.dumps(metrics_ood, indent=2), encoding="utf-8")
     (out_dir / "runtime.json").write_text(json.dumps(runtime, indent=2), encoding="utf-8")
@@ -837,22 +908,23 @@ def run_training(
         id_test["y_scalar"],
         y_id_pred,
         target_names,
-        out_plot / "scalar_parity_id.png",
+        out_plot_id / "scalar_parity.png",
         "Scalar parity (ID)",
     )
     if has_ood:
+        out_plot_ood.mkdir(parents=True, exist_ok=True)
         plot_scalar_parity(
             ood["y_scalar"],
             y_ood_pred,
             target_names,
-            out_plot / "scalar_parity_ood.png",
+            out_plot_ood / "scalar_parity.png",
             "Scalar parity (OOD)",
         )
     plot_scalar_residual_hist(
         id_test["y_scalar"],
         y_id_pred,
         target_names,
-        out_plot / "scalar_residuals_id.png",
+        out_plot_id / "scalar_residuals.png",
         "Scalar residuals (ID)",
     )
     if has_ood:
@@ -860,14 +932,14 @@ def run_training(
             ood["y_scalar"],
             y_ood_pred,
             target_names,
-            out_plot / "scalar_residuals_ood.png",
+            out_plot_ood / "scalar_residuals.png",
             "Scalar residuals (OOD)",
         )
     plot_curve_examples(
         id_test["t"],
         id_test["J"],
         J_id_pred,
-        out_plot / "curve_examples_id.png",
+        out_plot_id / "curve_examples.png",
         "J(t) examples (ID)",
         max_examples=9,
     )
@@ -876,7 +948,7 @@ def run_training(
             ood["t"],
             ood["J"],
             J_ood_pred,
-            out_plot / "curve_examples_ood.png",
+            out_plot_ood / "curve_examples.png",
             "J(t) examples (OOD)",
             max_examples=9,
         )
@@ -884,7 +956,7 @@ def run_training(
         id_test["t"],
         id_test["J"],
         J_id_pred,
-        out_plot / "curve_error_over_time_id.png",
+        out_plot_id / "curve_error_over_time.png",
         "Curve error over time (ID)",
     )
     if has_ood:
@@ -892,7 +964,7 @@ def run_training(
             ood["t"],
             ood["J"],
             J_ood_pred,
-            out_plot / "curve_error_over_time_ood.png",
+            out_plot_ood / "curve_error_over_time.png",
             "Curve error over time (OOD)",
         )
     return out_dir
@@ -910,6 +982,8 @@ def main():
     parser.add_argument("--alpha_grid", default="0.001,0.01,0.1,1,10,100")
     parser.add_argument("--run_start_index", type=int, default=None)
     parser.add_argument("--run_end_index", type=int, default=None)
+    parser.add_argument("--run_root_override", default=None)
+    parser.add_argument("--worst_case_top_n", type=int, default=10)
     args = parser.parse_args()
 
     alpha_grid = []
@@ -929,6 +1003,8 @@ def main():
         min_rows_for_xgboost=int(args.min_rows_for_xgboost),
         run_start_index=args.run_start_index,
         run_end_index=args.run_end_index,
+        run_root_override=args.run_root_override,
+        worst_case_top_n=max(1, int(args.worst_case_top_n)),
     )
     print("saved:", out_dir)
 

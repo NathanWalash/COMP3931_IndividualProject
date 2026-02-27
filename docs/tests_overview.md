@@ -68,10 +68,15 @@ Purpose:
 Purpose:
 - Validate ML export feature/target extraction and split alignment.
 
-## tests/test_pinn_dataset.py
+## tests/test_ml_run_dataset.py
 
 Purpose:
-- Validate PINN sampling utilities and PINN split row mapping.
+- Validate shared ML run/split loading utilities used by the hybrid PINN.
+
+What it checks:
+- `load_split_entries` respects run-index filtering and split-row mapping.
+- `load_split_feature_matrix` aligns feature rows with split entries.
+- `load_run_bundle` loads run fields/meta with expected schema.
 
 ## Current test gaps
 

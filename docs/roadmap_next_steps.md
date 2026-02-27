@@ -5,8 +5,8 @@ Specification status: locked for implementation phase (can be revised only by ex
 ## Current Status Snapshot
 
 1. Black-box training/evaluation pipeline is in place with scalar and curve plots.
-2. PINN training and evaluation scripts are in place, and PINN evaluation now writes the same curve plot types as black-box.
-3. Main remaining comparison gap is unified PINN scalar parity/residual outputs for direct side-by-side reporting.
+2. Hybrid PINN training script is in place (`scripts/ml/train_pinn_discrete.py`) and writes Stage A/B/C curve outputs plus summary/history artifacts.
+3. Main remaining model-quality work is improving hybrid PINN curve fidelity versus the current black-box baseline and adding stricter physics constraints to learned corrections.
 
 ## 1. Purpose
 
