@@ -3,11 +3,10 @@ import json
 import time
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.linear_model import Ridge
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.preprocessing import StandardScaler
 
@@ -19,6 +18,13 @@ from skin_diffusion.ml_physics_diagnostics import (
     write_rows_csv,
 )
 from skin_diffusion.ml_run_dataset import remap_run_dir
+from skin_diffusion.ml_scalar_diagnostics import (
+    build_scalar_rmse_summary,
+    plot_scalar_parity,
+    plot_scalar_residual_hist,
+    scalar_report,
+    scalar_targets_from_flux_curves,
+)
 from skin_diffusion.run_index import in_index_range, run_index_from_path
 from xgboost import XGBRegressor
 
@@ -75,6 +81,18 @@ def load_npz(path):
     return result
 
 
+def resolve_split_key(split_index_map, logical_name):
+    # Use canonical split keys only.
+    split_text = str(logical_name)
+    if split_text in split_index_map:
+        return split_text
+    raise ValueError(
+        "Could not find split key "
+        + split_text
+        + ". Expected one of: train, val, test"
+    )
+
+
 def filter_split_by_run_index(split_data, split_index_entries, start_idx, end_idx):
     # Filter one split by run index range using index entries from ml/meta.json.
     if start_idx is None and end_idx is None:
@@ -111,27 +129,12 @@ def remap_entry_run_dirs(entries, run_root_override):
     return remapped
 
 
-def rel_percent_error(y_true, y_pred, eps=1e-12):
-    # Mean relative error in percent.
-    denom = np.abs(y_true) + eps
-    return float(np.mean(np.abs(y_pred - y_true) / denom) * 100.0)
-
-
-def safe_r2(y_true, y_pred):
-    # R^2 needs at least two points.
-    if len(y_true) < 2:
-        return float("nan")
-    return float(r2_score(y_true, y_pred))
-
-
-def compute_scalar_metrics(y_true, y_pred):
-    # Scalar metrics for one target.
-    metrics = {}
-    metrics["mae"] = float(mean_absolute_error(y_true, y_pred))
-    metrics["rmse"] = float(np.sqrt(mean_squared_error(y_true, y_pred)))
-    metrics["r2"] = safe_r2(y_true, y_pred)
-    metrics["relative_error_percent"] = rel_percent_error(y_true, y_pred)
-    return metrics
+def extract_c0_feature(x_raw, feature_names):
+    # C0 is needed for fair scalar comparison from predicted curves.
+    if "C0" not in feature_names:
+        return np.full((int(x_raw.shape[0]),), np.nan, dtype=np.float32)
+    c0_col = int(feature_names.index("C0"))
+    return np.asarray(x_raw[:, c0_col], dtype=np.float32)
 
 
 def choose_transform(values):
@@ -422,206 +425,6 @@ def predict_curve_model(pca, curve_transform, estimator, X):
     return np.maximum(J_pred, 0.0)
 
 
-def subplot_grid(item_count, max_cols=3):
-    # Pick a compact grid so target plots stay readable as target count grows.
-    ncols = min(max_cols, max(1, int(item_count)))
-    nrows = int(np.ceil(float(item_count) / float(ncols)))
-    return nrows, ncols
-
-
-def should_use_log_axis(true_values, pred_values):
-    # Use log scale when values are strictly positive and span a wide range.
-    min_true = float(np.min(true_values))
-    min_pred = float(np.min(pred_values))
-    if min_true <= 0.0 or min_pred <= 0.0:
-        return False
-
-    max_true = float(np.max(true_values))
-    max_pred = float(np.max(pred_values))
-    min_value = min(min_true, min_pred)
-    max_value = max(max_true, max_pred)
-    if min_value <= 0.0:
-        return False
-    dynamic_range = max_value / min_value
-    return dynamic_range >= 100.0
-
-
-def has_nearly_zero_span(lo_value, hi_value, rtol=1e-6):
-    # Avoid collapsed parity axes only when values are effectively identical.
-    span = float(hi_value) - float(lo_value)
-    scale = max(abs(float(lo_value)), abs(float(hi_value)), np.finfo(float).eps)
-    return span <= rtol * scale
-
-
-def plot_scalar_parity(y_true, y_pred, target_names, out_path, title):
-    # Save predicted-vs-true scatter plots for scalar targets.
-    nrows, ncols = subplot_grid(len(target_names), max_cols=3)
-    fig, axes = plt.subplots(
-        nrows,
-        ncols,
-        figsize=(5.2 * ncols, 4.2 * nrows),
-        constrained_layout=True,
-    )
-    axes = np.asarray(axes).reshape(-1)
-
-    for i in range(len(target_names)):
-        name = target_names[i]
-        ax = axes[i]
-        mask = np.isfinite(y_true[:, i]) & np.isfinite(y_pred[:, i])
-        if np.sum(mask) == 0:
-            ax.set_title(name + " (no valid points)")
-            ax.axis("off")
-        else:
-            true_values = y_true[mask, i]
-            pred_values = y_pred[mask, i]
-            use_log_axis = should_use_log_axis(true_values, pred_values)
-            ax.scatter(true_values, pred_values, s=24, alpha=0.75, edgecolors="none")
-
-            lo_raw = min(float(np.min(true_values)), float(np.min(pred_values)))
-            hi_raw = max(float(np.max(true_values)), float(np.max(pred_values)))
-            if use_log_axis:
-                lo = lo_raw / 1.2
-                hi = hi_raw * 1.2
-                if lo <= 0.0:
-                    lo = lo_raw * 0.8
-                if hi <= lo:
-                    hi = lo * 10.0
-            else:
-                if has_nearly_zero_span(lo_raw, hi_raw):
-                    center = lo_raw
-                    half_width = max(abs(center) * 0.1, 1e-12)
-                    lo = center - half_width
-                    hi = center + half_width
-                else:
-                    pad = 0.04 * (hi_raw - lo_raw)
-                    lo = lo_raw - pad
-                    hi = hi_raw + pad
-
-            ax.plot([lo, hi], [lo, hi], "k--", linewidth=1)
-            # Keep equal axis scaling so distance from diagonal is visually meaningful.
-            ax.set_xlim(lo, hi)
-            ax.set_ylim(lo, hi)
-            if use_log_axis:
-                ax.set_xscale("log")
-                ax.set_yscale("log")
-                ax.set_xlabel("True (log scale)")
-                ax.set_ylabel("Pred (log scale)")
-            else:
-                ax.set_xlabel("True")
-                ax.set_ylabel("Pred")
-
-            mae = float(mean_absolute_error(true_values, pred_values))
-            rmse = float(np.sqrt(mean_squared_error(true_values, pred_values)))
-            r2 = safe_r2(true_values, pred_values)
-            n_points = int(np.sum(mask))
-            ax.set_title(name)
-            text = f"n={n_points}\nMAE={mae:.3g}\nRMSE={rmse:.3g}\nR2={r2:.3f}"
-            ax.text(
-                0.03,
-                0.97,
-                text,
-                transform=ax.transAxes,
-                va="top",
-                ha="left",
-                fontsize=9,
-                bbox={"boxstyle": "round,pad=0.3", "facecolor": "white", "alpha": 0.75},
-            )
-            ax.grid(alpha=0.25)
-
-    for j in range(len(target_names), len(axes)):
-        axes[j].axis("off")
-
-    fig.suptitle(title)
-    fig.savefig(out_path, dpi=180)
-    plt.close(fig)
-
-
-def plot_scalar_residual_hist(y_true, y_pred, target_names, out_path, title):
-    # Plot scalar residual distributions for fast bias/variance inspection.
-    nrows, ncols = subplot_grid(len(target_names), max_cols=3)
-    fig, axes = plt.subplots(
-        nrows,
-        ncols,
-        figsize=(5.2 * ncols, 4.2 * nrows),
-        constrained_layout=True,
-    )
-    axes = np.asarray(axes).reshape(-1)
-
-    for i in range(len(target_names)):
-        ax = axes[i]
-        name = target_names[i]
-        mask = np.isfinite(y_true[:, i]) & np.isfinite(y_pred[:, i])
-        if np.sum(mask) == 0:
-            ax.set_title(name + " (no valid points)")
-            ax.axis("off")
-        else:
-            true_values = y_true[mask, i]
-            pred_values = y_pred[mask, i]
-            if np.min(true_values) > 0.0:
-                residual = 100.0 * (pred_values - true_values) / np.maximum(true_values, 1e-12)
-                x_label = "Relative error (%)"
-            else:
-                residual = pred_values - true_values
-                x_label = "Residual (pred - true)"
-
-            ax.hist(residual, bins=24, alpha=0.8, color="#4C78A8")
-            ax.axvline(0.0, color="k", linestyle="--", linewidth=1)
-            mean_value = float(np.mean(residual))
-            ax.axvline(mean_value, color="#D62728", linestyle="-", linewidth=1.2, label=f"mean={mean_value:.3g}")
-            ax.set_title(name)
-            ax.set_xlabel(x_label)
-            ax.set_ylabel("Count")
-            ax.grid(alpha=0.25)
-            ax.legend(fontsize=8)
-
-    for j in range(len(target_names), len(axes)):
-        axes[j].axis("off")
-
-    fig.suptitle(title)
-    fig.savefig(out_path, dpi=180)
-    plt.close(fig)
-
-
-def scalar_report(y_true, y_pred, target_names):
-    # Per-target metric report with explicit accounting for invalid predictions.
-    report = {}
-    for i in range(len(target_names)):
-        name = target_names[i]
-        target_mask = np.isfinite(y_true[:, i])
-        pred_mask = np.isfinite(y_pred[:, i])
-        valid_mask = target_mask & pred_mask
-
-        target_n = int(np.sum(target_mask))
-        valid_n = int(np.sum(valid_mask))
-        invalid_pred_n = int(np.sum(target_mask & (~pred_mask)))
-
-        if valid_n == 0:
-            stats = {}
-            stats["mae"] = float("nan")
-            stats["rmse"] = float("nan")
-            stats["r2"] = float("nan")
-            stats["relative_error_percent"] = float("nan")
-            stats["n"] = 0
-            stats["target_n"] = target_n
-            stats["invalid_pred_n"] = invalid_pred_n
-            report[name] = stats
-        else:
-            stats = compute_scalar_metrics(y_true[valid_mask, i], y_pred[valid_mask, i])
-            stats["n"] = valid_n
-            stats["target_n"] = target_n
-            stats["invalid_pred_n"] = invalid_pred_n
-            report[name] = stats
-    return report
-
-
-def build_scalar_rmse_summary(metrics_scalar, target_names):
-    # Keep only RMSE per scalar target for quick comparisons.
-    summary = {}
-    for name in target_names:
-        summary[name] = metrics_scalar[name]["rmse"]
-    return summary
-
-
 def run_training(
     ml_dir,
     out_dir,
@@ -634,17 +437,15 @@ def run_training(
     run_root_override=None,
     worst_case_top_n=10,
 ):
-    # Run one full train/evaluate pass and save outputs.
-    # Outputs: per-split metrics, runtime info, compact summary, and plots.
+    # Run one full train/evaluate pass and save outputs for train/val/test only.
     ml_dir = Path(ml_dir)
     out_dir = Path(out_dir)
     out_plot = out_dir / "plots"
-    out_plot_id = out_plot / "id"
-    out_plot_ood = out_plot / "ood_primary"
+    out_plot_test = out_plot / "test"
     out_diag = out_dir / "diagnostics"
     out_diag_physics = out_diag / "physics"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_plot_id.mkdir(parents=True, exist_ok=True)
+    out_plot_test.mkdir(parents=True, exist_ok=True)
     out_diag_physics.mkdir(parents=True, exist_ok=True)
 
     target_names = load_target_names(ml_dir)
@@ -652,74 +453,65 @@ def run_training(
     ml_meta = load_json(ml_dir / "meta.json")
     split_index_map = ml_meta["splits"]
 
-    id_train = load_npz(ml_dir / "id_train.npz")
-    id_val = load_npz(ml_dir / "id_val.npz")
-    id_test = load_npz(ml_dir / "id_test.npz")
-    ood = None
-    has_ood = False
-    ood_path = ml_dir / "ood_primary.npz"
-    if ood_path.exists() and "ood_primary" in split_index_map:
-        ood = load_npz(ood_path)
-        has_ood = True
+    train_split_key = resolve_split_key(split_index_map, "train")
+    val_split_key = resolve_split_key(split_index_map, "val")
+    test_split_key = resolve_split_key(split_index_map, "test")
 
-    id_train, id_train_index_unused = filter_split_by_run_index(
-        id_train,
-        split_index_map["id_train"]["index"],
+    train = load_npz(ml_dir / (train_split_key + ".npz"))
+    val = load_npz(ml_dir / (val_split_key + ".npz"))
+    test = load_npz(ml_dir / (test_split_key + ".npz"))
+
+    train, train_index_after_filter = filter_split_by_run_index(
+        train,
+        split_index_map[train_split_key]["index"],
         run_start_index,
         run_end_index,
     )
-    id_val, id_val_index = filter_split_by_run_index(
-        id_val,
-        split_index_map["id_val"]["index"],
+    val, val_index = filter_split_by_run_index(
+        val,
+        split_index_map[val_split_key]["index"],
         run_start_index,
         run_end_index,
     )
-    id_test, id_test_index = filter_split_by_run_index(
-        id_test,
-        split_index_map["id_test"]["index"],
+    test, test_index = filter_split_by_run_index(
+        test,
+        split_index_map[test_split_key]["index"],
         run_start_index,
         run_end_index,
     )
-    if has_ood:
-        ood, ood_index_unused = filter_split_by_run_index(
-            ood,
-            split_index_map["ood_primary"]["index"],
-            run_start_index,
-            run_end_index,
+    # Keep this for row-count traceability in runtime/debug tooling.
+    train_filtered_row_count = int(len(train_index_after_filter))
+
+    val_entries = remap_entry_run_dirs(val_index, run_root_override)
+    test_entries = remap_entry_run_dirs(test_index, run_root_override)
+
+    if train["X"].shape[0] == 0:
+        raise ValueError("No train rows left after run-index filtering")
+    if val["X"].shape[0] == 0:
+        raise ValueError("No val rows left after run-index filtering")
+    if test["X"].shape[0] == 0:
+        raise ValueError("No test rows left after run-index filtering")
+
+    if train["X"].shape[1] != len(feature_names):
+        raise ValueError(
+            "Feature count mismatch: X has "
+            + str(train["X"].shape[1])
+            + " columns but meta feature_names has "
+            + str(len(feature_names))
         )
 
-    id_val_entries = remap_entry_run_dirs(id_val_index, run_root_override)
-    id_test_entries = remap_entry_run_dirs(id_test_index, run_root_override)
-
-    if id_train["X"].shape[0] == 0:
-        raise ValueError("No id_train rows left after run-index filtering")
-    if id_val["X"].shape[0] == 0:
-        raise ValueError("No id_val rows left after run-index filtering")
-    if id_test["X"].shape[0] == 0:
-        raise ValueError("No id_test rows left after run-index filtering")
-    if has_ood and ood["X"].shape[0] == 0:
-        raise ValueError("No ood_primary rows left after run-index filtering")
-
-    # Ensure feature schema and arrays agree before fitting.
-    if id_train["X"].shape[1] != len(feature_names):
-        raise ValueError("Feature count mismatch: X has " + str(id_train["X"].shape[1]) + " columns but meta feature_names has " + str(len(feature_names)))
-    # Fit scaler on training data only.
+    # Fit tabular scaler on train only.
     x_scaler = StandardScaler()
-    X_train = x_scaler.fit_transform(id_train["X"])
-    X_val = x_scaler.transform(id_val["X"])
-    X_test = x_scaler.transform(id_test["X"])
-    if has_ood:
-        X_ood = x_scaler.transform(ood["X"])
-    else:
-        X_ood = None
+    x_train = x_scaler.fit_transform(train["X"])
+    x_val = x_scaler.transform(val["X"])
+    x_test = x_scaler.transform(test["X"])
 
     t0 = time.time()
-    # Scalar stage: select model/hyperparameters per target on validation split.
     scalar_models = fit_scalar_models(
-        X_train,
-        id_train["y_scalar"],
-        X_val,
-        id_val["y_scalar"],
+        x_train,
+        train["y_scalar"],
+        x_val,
+        val["y_scalar"],
         target_names,
         use_xgboost=use_xgboost,
         alpha_grid=alpha_grid,
@@ -727,118 +519,120 @@ def run_training(
     )
     scalar_train_seconds = float(time.time() - t0)
 
-    y_id_pred = predict_scalar_models(scalar_models, X_test)
-    if has_ood:
-        y_ood_pred = predict_scalar_models(scalar_models, X_ood)
-    else:
-        y_ood_pred = None
+    y_test_pred = predict_scalar_models(scalar_models, x_test)
+    y_val_pred = predict_scalar_models(scalar_models, x_val)
 
     t1 = time.time()
-    # Curve stage: fit model in PCA space, then decode back to J(t).
     pca, curve_transform, curve_model, curve_config = fit_curve_model(
-        X_train,
-        id_train["J"],
-        X_val,
-        id_val["J"],
+        x_train,
+        train["J"],
+        x_val,
+        val["J"],
         curve_components=curve_components,
         use_xgboost=use_xgboost,
         alpha_grid=alpha_grid,
     )
     curve_train_seconds = float(time.time() - t1)
 
-    J_val_pred = predict_curve_model(pca, curve_transform, curve_model, X_val)
-    J_id_pred = predict_curve_model(pca, curve_transform, curve_model, X_test)
-    if has_ood:
-        J_ood_pred = predict_curve_model(pca, curve_transform, curve_model, X_ood)
-    else:
-        J_ood_pred = None
+    j_val_pred = predict_curve_model(pca, curve_transform, curve_model, x_val)
+    j_test_pred = predict_curve_model(pca, curve_transform, curve_model, x_test)
 
-    # Validation curve metrics are saved for apples-to-apples hybrid comparisons.
-    metrics_id_val = {}
-    metrics_id_val["rows"] = int(id_val["X"].shape[0])
-    metrics_id_val["curve"] = compute_curve_metrics(id_val["J"], J_val_pred, id_val["t"])
+    c0_val = extract_c0_feature(val["X"], feature_names)
+    c0_test = extract_c0_feature(test["X"], feature_names)
+    y_val_curve = scalar_targets_from_flux_curves(j_val_pred, val["t"], c0_val, target_names)
+    y_test_curve = scalar_targets_from_flux_curves(j_test_pred, test["t"], c0_test, target_names)
 
-    metrics_id = {}
-    metrics_id["rows"] = int(id_test["X"].shape[0])
-    metrics_id["scalar"] = scalar_report(id_test["y_scalar"], y_id_pred, target_names)
-    metrics_id["curve"] = compute_curve_metrics(id_test["J"], J_id_pred, id_test["t"])
+    # Keep a common staged metric structure across all models.
+    metrics_val = {
+        "available": True,
+        "stageBase": {
+            "curve": compute_curve_metrics(val["J"], j_val_pred, val["t"]),
+            "scalar": scalar_report(val["y_scalar"], y_val_curve, target_names),
+        },
+        "stageFinal": {
+            "curve": compute_curve_metrics(val["J"], j_val_pred, val["t"]),
+            "scalar": scalar_report(val["y_scalar"], y_val_curve, target_names),
+        },
+    }
+    metrics_test = {
+        "available": True,
+        "stageBase": {
+            "curve": compute_curve_metrics(test["J"], j_test_pred, test["t"]),
+            "scalar": scalar_report(test["y_scalar"], y_test_curve, target_names),
+        },
+        "stageFinal": {
+            "curve": compute_curve_metrics(test["J"], j_test_pred, test["t"]),
+            "scalar": scalar_report(test["y_scalar"], y_test_curve, target_names),
+        },
+    }
 
-    metrics_ood = {}
-    if has_ood:
-        metrics_ood["available"] = True
-        metrics_ood["rows"] = int(ood["X"].shape[0])
-        metrics_ood["scalar"] = scalar_report(ood["y_scalar"], y_ood_pred, target_names)
-        metrics_ood["curve"] = compute_curve_metrics(ood["J"], J_ood_pred, ood["t"])
-    else:
-        metrics_ood["available"] = False
-        metrics_ood["rows"] = 0
-        metrics_ood["scalar"] = {}
-        metrics_ood["curve"] = {}
-
-    # Save curve bundles so blackbox and hybrid can be inspected with the same loaders.
+    # Save prediction bundles with aligned key names.
     np.savez(
-        out_dir / "pred_id_val.npz",
-        j_true=id_val["J"],
-        j_pred=J_val_pred,
-        t=id_val["t"],
+        out_dir / "pred_val.npz",
+        j_true=val["J"],
+        j_stageBase=j_val_pred,
+        j_stageFinal=j_val_pred,
+        t=val["t"],
     )
     np.savez(
-        out_dir / "pred_id_test.npz",
-        j_true=id_test["J"],
-        j_pred=J_id_pred,
-        t=id_test["t"],
+        out_dir / "pred_test.npz",
+        j_true=test["J"],
+        j_stageBase=j_test_pred,
+        j_stageFinal=j_test_pred,
+        t=test["t"],
     )
 
-    # Physics diagnostics on ID val/test use run bundles referenced in ml/meta split index.
-    print("computing physics diagnostics for id_val ...")
+    print("computing physics diagnostics for val ...")
     physics_val_rows, physics_val_summary = compute_split_physics_diagnostics(
-        entries=id_val_entries,
-        split_name="id_val",
+        entries=val_entries,
+        split_name="val",
         prediction_map={
-            "truth": id_val["J"],
-            "blackbox": J_val_pred,
+            "truth": val["J"],
+            "stageBase": j_val_pred,
+            "stageFinal": j_val_pred,
         },
-        progress_label="physics_id_val",
+        progress_label="physics_val",
         truth_key="truth",
     )
-    print("computing physics diagnostics for id_test ...")
+    print("computing physics diagnostics for test ...")
     physics_test_rows, physics_test_summary = compute_split_physics_diagnostics(
-        entries=id_test_entries,
-        split_name="id_test",
+        entries=test_entries,
+        split_name="test",
         prediction_map={
-            "truth": id_test["J"],
-            "blackbox": J_id_pred,
+            "truth": test["J"],
+            "stageBase": j_test_pred,
+            "stageFinal": j_test_pred,
         },
-        progress_label="physics_id_test",
+        progress_label="physics_test",
         truth_key="truth",
     )
-    write_rows_csv(out_diag_physics / "physics_diag_id_val.csv", physics_val_rows)
-    write_rows_csv(out_diag_physics / "physics_diag_id_test.csv", physics_test_rows)
-    (out_diag_physics / "physics_diag_id_val_summary.json").write_text(
+    write_rows_csv(out_diag_physics / "physics_diag_val.csv", physics_val_rows)
+    write_rows_csv(out_diag_physics / "physics_diag_test.csv", physics_test_rows)
+    (out_diag_physics / "physics_diag_val_summary.json").write_text(
         json.dumps(physics_val_summary, indent=2),
         encoding="utf-8",
     )
-    (out_diag_physics / "physics_diag_id_test_summary.json").write_text(
+    (out_diag_physics / "physics_diag_test_summary.json").write_text(
         json.dumps(physics_test_summary, indent=2),
         encoding="utf-8",
     )
     worst_val = build_worst_case_report(
         physics_val_rows,
-        split_name="id_val",
-        stage_name="blackbox",
+        split_name="val",
+        stage_name="stageFinal",
         top_n=worst_case_top_n,
     )
     worst_test = build_worst_case_report(
         physics_test_rows,
-        split_name="id_test",
-        stage_name="blackbox",
+        split_name="test",
+        stage_name="stageFinal",
         top_n=worst_case_top_n,
     )
-    (out_diag_physics / "physics_diag_id_val_worst.json").write_text(
+    (out_diag_physics / "physics_diag_val_worst.json").write_text(
         json.dumps(worst_val, indent=2),
         encoding="utf-8",
     )
-    (out_diag_physics / "physics_diag_id_test_worst.json").write_text(
+    (out_diag_physics / "physics_diag_test_worst.json").write_text(
         json.dumps(worst_test, indent=2),
         encoding="utf-8",
     )
@@ -850,7 +644,6 @@ def run_training(
     runtime["target_names"] = target_names
     runtime["feature_names"] = feature_names
     runtime["feature_count"] = int(len(feature_names))
-    runtime["has_ood"] = bool(has_ood)
 
     runtime_models = []
     for model_info in scalar_models:
@@ -868,105 +661,65 @@ def run_training(
     runtime["curve_transform"] = curve_transform
     runtime["curve_components"] = int(pca.n_components_)
     runtime["split_rows"] = {
-        "id_train": int(id_train["X"].shape[0]),
-        "id_val": int(id_val["X"].shape[0]),
-        "id_test": int(id_test["X"].shape[0]),
-        "ood_primary": int(ood["X"].shape[0]) if has_ood else 0,
+        "train": int(train["X"].shape[0]),
+        "val": int(val["X"].shape[0]),
+        "test": int(test["X"].shape[0]),
     }
+    runtime["train_filtered_row_count"] = int(train_filtered_row_count)
     runtime["run_index_filter"] = {
         "start": run_start_index,
         "end": run_end_index,
     }
     runtime["run_root_override"] = run_root_override
-    # Explicit pointers make downstream report tooling simpler.
     runtime["physics_diagnostics"] = {
-        "id_val_summary_file": "diagnostics/physics/physics_diag_id_val_summary.json",
-        "id_test_summary_file": "diagnostics/physics/physics_diag_id_test_summary.json",
-        "id_val_worst_file": "diagnostics/physics/physics_diag_id_val_worst.json",
-        "id_test_worst_file": "diagnostics/physics/physics_diag_id_test_worst.json",
+        "val_summary_file": "diagnostics/physics/physics_diag_val_summary.json",
+        "test_summary_file": "diagnostics/physics/physics_diag_test_summary.json",
+        "val_worst_file": "diagnostics/physics/physics_diag_val_worst.json",
+        "test_worst_file": "diagnostics/physics/physics_diag_test_worst.json",
     }
 
-    # Keep a short summary for quick checks
     summary = {}
-    summary["id_scalar_rmse"] = build_scalar_rmse_summary(metrics_id["scalar"], target_names)
-    if has_ood:
-        summary["ood_scalar_rmse"] = build_scalar_rmse_summary(metrics_ood["scalar"], target_names)
-    else:
-        summary["ood_scalar_rmse"] = {}
-    summary["id_curve_relative_l2"] = metrics_id["curve"]["relative_l2"]
-    summary["ood_curve_relative_l2"] = metrics_ood["curve"].get("relative_l2")
-    summary["id_curve_pearson_r"] = metrics_id["curve"]["pearson_r"]
-    summary["ood_curve_pearson_r"] = metrics_ood["curve"].get("pearson_r")
+    summary["test_scalar_rmse"] = build_scalar_rmse_summary(metrics_test["stageFinal"]["scalar"], target_names)
+    summary["val_curve_relative_l2"] = metrics_val["stageFinal"]["curve"]["relative_l2"]
+    summary["test_curve_relative_l2"] = metrics_test["stageFinal"]["curve"]["relative_l2"]
+    summary["val_curve_pearson_r"] = metrics_val["stageFinal"]["curve"]["pearson_r"]
+    summary["test_curve_pearson_r"] = metrics_test["stageFinal"]["curve"]["pearson_r"]
 
-    (out_dir / "metrics_id_val.json").write_text(json.dumps(metrics_id_val, indent=2), encoding="utf-8")
-    (out_dir / "metrics_id.json").write_text(json.dumps(metrics_id, indent=2), encoding="utf-8")
-    (out_dir / "metrics_ood.json").write_text(json.dumps(metrics_ood, indent=2), encoding="utf-8")
+    (out_dir / "metrics_val.json").write_text(json.dumps(metrics_val, indent=2), encoding="utf-8")
+    (out_dir / "metrics_test.json").write_text(json.dumps(metrics_test, indent=2), encoding="utf-8")
     (out_dir / "runtime.json").write_text(json.dumps(runtime, indent=2), encoding="utf-8")
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
+    # Final-stage visual diagnostics mirror the other trainers.
     plot_scalar_parity(
-        id_test["y_scalar"],
-        y_id_pred,
+        test["y_scalar"],
+        y_test_curve,
         target_names,
-        out_plot_id / "scalar_parity.png",
-        "Scalar parity (ID)",
+        out_plot_test / "scalar_parity.png",
+        "Scalar parity (test)",
     )
-    if has_ood:
-        out_plot_ood.mkdir(parents=True, exist_ok=True)
-        plot_scalar_parity(
-            ood["y_scalar"],
-            y_ood_pred,
-            target_names,
-            out_plot_ood / "scalar_parity.png",
-            "Scalar parity (OOD)",
-        )
     plot_scalar_residual_hist(
-        id_test["y_scalar"],
-        y_id_pred,
+        test["y_scalar"],
+        y_test_curve,
         target_names,
-        out_plot_id / "scalar_residuals.png",
-        "Scalar residuals (ID)",
+        out_plot_test / "scalar_residuals.png",
+        "Scalar residuals (test)",
     )
-    if has_ood:
-        plot_scalar_residual_hist(
-            ood["y_scalar"],
-            y_ood_pred,
-            target_names,
-            out_plot_ood / "scalar_residuals.png",
-            "Scalar residuals (OOD)",
-        )
     plot_curve_examples(
-        id_test["t"],
-        id_test["J"],
-        J_id_pred,
-        out_plot_id / "curve_examples.png",
-        "J(t) examples (ID)",
+        test["t"],
+        test["J"],
+        j_test_pred,
+        out_plot_test / "curve_examples.png",
+        "J(t) examples (test)",
         max_examples=9,
     )
-    if has_ood:
-        plot_curve_examples(
-            ood["t"],
-            ood["J"],
-            J_ood_pred,
-            out_plot_ood / "curve_examples.png",
-            "J(t) examples (OOD)",
-            max_examples=9,
-        )
     plot_curve_error_over_time(
-        id_test["t"],
-        id_test["J"],
-        J_id_pred,
-        out_plot_id / "curve_error_over_time.png",
-        "Curve error over time (ID)",
+        test["t"],
+        test["J"],
+        j_test_pred,
+        out_plot_test / "curve_error_over_time.png",
+        "Curve error over time (test)",
     )
-    if has_ood:
-        plot_curve_error_over_time(
-            ood["t"],
-            ood["J"],
-            J_ood_pred,
-            out_plot_ood / "curve_error_over_time.png",
-            "Curve error over time (OOD)",
-        )
     return out_dir
 
 

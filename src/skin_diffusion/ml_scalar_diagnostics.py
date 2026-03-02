@@ -19,11 +19,15 @@ def rel_percent_error(y_true, y_pred, eps=1e-12):
 
 
 def safe_r2(y_true, y_pred):
-    # Return NaN instead of hard errors for degenerate inputs.
+    # Return a finite score for degenerate targets.
+    # For near-constant y_true, classic R^2 is undefined. We map this to:
+    # - 1.0 when prediction error is effectively zero
+    # - 0.0 otherwise
     if len(y_true) < 2:
         return float("nan")
     if np.allclose(np.var(y_true), 0.0):
-        return float("nan")
+        mse = float(np.mean((y_true - y_pred) ** 2))
+        return 1.0 if np.isclose(mse, 0.0, rtol=1e-6, atol=1e-24) else 0.0
     return float(r2_score(y_true, y_pred))
 
 
