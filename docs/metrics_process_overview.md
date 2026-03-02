@@ -53,6 +53,12 @@ and what the key metrics mean.
 
 ## 4) Metrics we measure
 
+- **R² reporting policy for scalar targets**
+  - For nearly constant targets, classic `R²` is mathematically undefined.
+  - Reporting uses a finite fallback to keep summaries and plots stable:
+    - `R² = 1.0` when prediction error is effectively zero.
+    - `R² = 0.0` otherwise.
+
 - **Bottom flux J(t)**
   - Rate of drug leaving the bottom boundary over time.
   - Computed from the concentration gradient at the bottom.

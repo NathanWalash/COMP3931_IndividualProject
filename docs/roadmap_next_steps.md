@@ -5,8 +5,8 @@ Specification status: locked for implementation phase (can be revised only by ex
 ## Current Status Snapshot
 
 1. Black-box training/evaluation pipeline is in place with scalar and curve plots.
-2. Hybrid PINN training script is in place (`scripts/ml/train_pinn_discrete.py`) and writes Stage A/B/C curve outputs plus summary/history artifacts.
-3. Main remaining model-quality work is improving hybrid PINN curve fidelity versus the current black-box baseline and adding stricter physics constraints to learned corrections.
+2. PINN training script is in place (`scripts/ml/train_pinn.py`) and is the primary physics-informed comparison path.
+3. Main remaining model-quality work is improving PINN curve fidelity versus the current black-box baseline while preserving physics consistency.
 
 ## 1. Purpose
 
@@ -70,15 +70,12 @@ Specification status: locked for implementation phase (can be revised only by ex
 
 ## 6. Split Strategy (Chosen)
 
-1. ID split:
+1. Core split:
    1. `70/15/15` train/val/test,
    2. random by run with fixed split seed.
-2. Required OOD split:
-   1. hold out `patch_width = 0.25` completely from training,
-   2. evaluate both black-box and PINN on this held-out condition.
-3. Optional second OOD split:
-   1. hold out highest `sigma` band,
-   2. include only if time/compute allows.
+2. Optional stress-test split:
+   1. add an extra held-out condition only when needed for a dedicated robustness study,
+   2. keep it outside the default benchmarking path.
 
 ## 7. Dataset Size Tiers (Progressive Execution)
 
@@ -132,7 +129,7 @@ Specification status: locked for implementation phase (can be revised only by ex
 2. `J(t)` error-over-time plots.
 3. Scatter plots for primary scalars (and optional `Tlag`) (predicted vs simulator).
 4. Residual histograms for scalar metrics.
-5. ID vs OOD comparison table.
+5. Val vs test comparison table.
 6. Runtime/compute comparison table.
 7. One full-field side-by-side figure (single representative run).
 
@@ -142,18 +139,18 @@ Specification status: locked for implementation phase (can be revised only by ex
 
 1. Generate pilot dataset on selected tier.
 2. Validate run bundles and metric distributions.
-3. Validate ID and OOD split correctness.
+3. Validate train/val/test split correctness.
 
 ### Phase 2: Black-Box Baseline
 
 1. Train baseline black-box model(s) on primary targets.
-2. Evaluate on ID and OOD.
+2. Evaluate on val and test.
 3. Generate baseline figures and metrics tables.
 
 ### Phase 3: PINN Development
 
 1. Train PINN on aligned targets.
-2. Evaluate on ID and OOD.
+2. Evaluate on val and test.
 3. Produce physics-consistency metrics and plots.
 
 ### Phase 4: Comparative Reporting
@@ -165,7 +162,7 @@ Specification status: locked for implementation phase (can be revised only by ex
 ## 11. Acceptance Criteria
 
 1. Black-box and PINN both evaluated on same primary targets.
-2. ID and required OOD results reported with fixed seeds/splits.
+2. Val and test results reported with fixed seeds/splits.
 3. Accuracy, physics, and compute comparisons are complete.
 4. Full-field demonstration figure is included (single representative run).
 5. Conclusions clearly separate:
