@@ -63,12 +63,7 @@ def read_features_from_meta(meta):
     patch_offset = patch_offset_to_float(sample["patch_offset"])
     c0 = float(sample["C0"])
     decay_rate = float(sample["decay_rate"])
-    if "k_dermis" in sample:
-        k_dermis = float(sample["k_dermis"])
-    else:
-        # backward compatibility for older runs
-        layers = extras.get("layers", {})
-        k_dermis = float(layers.get("k_dermis", 0.0))
+    k_dermis = float(sample["k_dermis"])
     sigma = float(sample["heterogeneity_sigma"])
     steps = float(sample["heterogeneity_steps"])
     base = {}
@@ -182,8 +177,8 @@ def patch_offset_bucket(value):
     return "center"
 
 
-def build_id_strata(index_entries):
-    # Build one simple stratification label per ID row using only input features.
+def build_split_strata(index_entries):
+    # Build one simple stratification label per row using only input features.
     # We avoid target-based stratification to keep splits leakage-safe.
     patch_width_labels = []
     patch_offset_labels = []
@@ -207,14 +202,14 @@ def build_id_strata(index_entries):
     return np.asarray(labels, dtype=object)
 
 
-def stratified_id_split(index_entries, n_train, n_val, n_test, seed=42):
-    # Rebuild ID train/val/test with stratification and original split counts.
+def stratified_split(index_entries, n_train, n_val, n_test, seed=42):
+    # Rebuild train/val/test with stratification and original split counts.
     n_total = len(index_entries)
     if n_total != (n_train + n_val + n_test):
-        raise ValueError("ID split counts do not sum to total ID rows")
+        raise ValueError("Split counts do not sum to total rows")
 
     all_idx = np.arange(n_total, dtype=int)
-    fine_strata = build_id_strata(index_entries)
+    fine_strata = build_split_strata(index_entries)
 
     width_only = []
     for label in fine_strata:
@@ -222,7 +217,7 @@ def stratified_id_split(index_entries, n_train, n_val, n_test, seed=42):
         width_only.append(parts[0])
     width_only = np.asarray(width_only, dtype=object)
 
-    # For tiny ID datasets, val or test can be empty after assembly.
+    # For tiny datasets, val or test can be empty after assembly.
     # Handle those cases directly so export never crashes on pilot runs.
     if n_val == 0 and n_test == 0:
         return all_idx, np.array([], dtype=int), np.array([], dtype=int)
@@ -320,7 +315,7 @@ def build_ml_split_from_arrays(J, t, index_entries, scalar_target_names):
 
 
 def export_ml_ready_dataset(processed_dir, out_dir):
-    # convert assembled ID/OOD outputs into model-ready split files
+    # Convert assembled train/val/test outputs into model-ready split files.
     processed_dir = Path(processed_dir)
     out_dir = Path(out_dir)
     ensure_dir(out_dir)
@@ -331,61 +326,54 @@ def export_ml_ready_dataset(processed_dir, out_dir):
     feature_names = FEATURE_NAMES
     scalar_target_names, scalar_target_source = scalar_target_policy_from_index(index)
 
-    # Load assembled ID arrays, then re-split them with stratification.
+    # Load assembled arrays, then re-split them with stratification.
     # This keeps split sizes the same but improves balance across conditions.
-    id_train_npz = np.load(processed_dir / "id" / "v3_train.npz")
-    id_val_npz = np.load(processed_dir / "id" / "v3_val.npz")
-    id_test_npz = np.load(processed_dir / "id" / "v3_test.npz")
+    train_npz = np.load(processed_dir / "v3_train.npz")
+    val_npz = np.load(processed_dir / "v3_val.npz")
+    test_npz = np.load(processed_dir / "v3_test.npz")
 
-    id_J_all = np.concatenate([id_train_npz["J"], id_val_npz["J"], id_test_npz["J"]], axis=0)
-    id_t_all = np.concatenate([id_train_npz["t"], id_val_npz["t"], id_test_npz["t"]], axis=0)
+    j_all = np.concatenate([train_npz["J"], val_npz["J"], test_npz["J"]], axis=0)
+    t_all = np.concatenate([train_npz["t"], val_npz["t"], test_npz["t"]], axis=0)
 
-    id_index = index["id_index"]
-    id_entries_all = []
-    for entry in id_index["train"]:
-        id_entries_all.append(entry)
-    for entry in id_index["val"]:
-        id_entries_all.append(entry)
-    for entry in id_index["test"]:
-        id_entries_all.append(entry)
+    split_index = index["splits"]
+    entries_all = []
+    for entry in split_index["train"]:
+        entries_all.append(entry)
+    for entry in split_index["val"]:
+        entries_all.append(entry)
+    for entry in split_index["test"]:
+        entries_all.append(entry)
 
-    n_train = len(id_index["train"])
-    n_val = len(id_index["val"])
-    n_test = len(id_index["test"])
-    train_idx, val_idx, test_idx = stratified_id_split(id_entries_all, n_train, n_val, n_test, seed=42)
+    n_train = len(split_index["train"])
+    n_val = len(split_index["val"])
+    n_test = len(split_index["test"])
+    train_idx, val_idx, test_idx = stratified_split(entries_all, n_train, n_val, n_test, seed=42)
 
     split_defs = []
     split_defs.append(
         (
-            "id_train",
-            subset_array(id_J_all, train_idx),
-            subset_array(id_t_all, train_idx),
-            subset_entries(id_entries_all, train_idx),
+            "train",
+            subset_array(j_all, train_idx),
+            subset_array(t_all, train_idx),
+            subset_entries(entries_all, train_idx),
         )
     )
     split_defs.append(
         (
-            "id_val",
-            subset_array(id_J_all, val_idx),
-            subset_array(id_t_all, val_idx),
-            subset_entries(id_entries_all, val_idx),
+            "val",
+            subset_array(j_all, val_idx),
+            subset_array(t_all, val_idx),
+            subset_entries(entries_all, val_idx),
         )
     )
     split_defs.append(
         (
-            "id_test",
-            subset_array(id_J_all, test_idx),
-            subset_array(id_t_all, test_idx),
-            subset_entries(id_entries_all, test_idx),
+            "test",
+            subset_array(j_all, test_idx),
+            subset_array(t_all, test_idx),
+            subset_entries(entries_all, test_idx),
         )
     )
-
-    # OOD split stays exactly as assembled when present.
-    ood_npz_path = processed_dir / "ood" / "v3_ood_primary.npz"
-    ood_index = index.get("ood_index", [])
-    if ood_npz_path.exists() and len(ood_index) > 0:
-        ood_npz = np.load(ood_npz_path)
-        split_defs.append(("ood_primary", ood_npz["J"], ood_npz["t"], ood_index))
 
     summary = {}
     summary["feature_names"] = feature_names

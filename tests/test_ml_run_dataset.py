@@ -78,7 +78,7 @@ def make_ml_split(ml_dir, run_dirs):
     meta = {
         "feature_names": ["f0", "f1"],
         "scalar_target_names": ["P"],
-        "splits": {"id_train": {"rows": len(rows), "index": rows}},
+        "splits": {"train": {"rows": len(rows), "index": rows}},
     }
     write_json(ml_dir / "meta.json", meta)
 
@@ -90,7 +90,7 @@ def make_ml_split(ml_dir, run_dirs):
         x[i, 0] = float(i)
         x[i, 1] = float(i) + 1.0
         y[i, 0] = 10.0 + float(i)
-    np.savez(ml_dir / "id_train.npz", X=x, y_scalar=y, J=j, t=t)
+    np.savez(ml_dir / "train.npz", X=x, y_scalar=y, J=j, t=t)
 
 
 def test_load_split_entries_and_features(tmp_path):
@@ -105,7 +105,7 @@ def test_load_split_entries_and_features(tmp_path):
 
     entries = load_split_entries(
         ml_dir=ml_dir,
-        split_name="id_train",
+        split_name="train",
         run_start_index=100,
         run_end_index=200,
     )
@@ -113,11 +113,11 @@ def test_load_split_entries_and_features(tmp_path):
     assert Path(entries[0]["run_dir"]).name == "run_101"
     assert int(entries[0]["split_row"]) == 1
 
-    x = load_split_feature_matrix(ml_dir, "id_train", entries)
+    x = load_split_feature_matrix(ml_dir, "train", entries)
     assert x.shape == (1, 2)
     assert np.allclose(x[0], np.array([1.0, 2.0], dtype=float))
 
-    y = load_split_scalar_matrix(ml_dir, "id_train", entries)
+    y = load_split_scalar_matrix(ml_dir, "train", entries)
     assert y.shape == (1, 1)
     assert np.allclose(y[0], np.array([11.0], dtype=float))
 

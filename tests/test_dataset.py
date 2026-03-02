@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from skin_diffusion.dataset import select_id_ood_runs, split_indices
+from skin_diffusion.dataset import split_indices
 
 
 def test_split_indices_tolerates_float_rounding():
@@ -42,26 +42,4 @@ def test_split_indices_rejects_too_small_n():
             train_frac=0.7,
             val_frac=0.15,
         )
-
-
-def test_select_id_ood_runs_patch_width_holdout():
-    runs = [
-        {"patch_width": 0.25},
-        {"patch_width": 0.50},
-        {"patch_width": 1.00},
-        {"patch_width": 0.25},
-    ]
-
-    id_runs, ood_runs = select_id_ood_runs(runs, ood_param="patch_width", ood_value=0.25)
-
-    assert len(ood_runs) == 2
-    assert len(id_runs) == 2
-
-    for run in ood_runs:
-        assert run["patch_width"] == 0.25
-
-    for run in id_runs:
-        assert run["patch_width"] != 0.25
-
-
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 from skin_diffusion.config import load_config
-from skin_diffusion.dataset import assemble_processed_dataset_with_ood
+from skin_diffusion.dataset import assemble_processed_dataset_splits
 from skin_diffusion.dataset_spec import (
     extract_primary_scalar_targets,
     is_dataset_spec,
@@ -44,9 +44,6 @@ def main():
     parser.add_argument("--split_seed", type=int, default=321)
     parser.add_argument("--train_frac", type=float, default=0.7)
     parser.add_argument("--val_frac", type=float, default=0.15)
-    parser.add_argument("--ood_param", default="patch_width")
-    parser.add_argument("--ood_value", type=float, default=0.25)
-    parser.add_argument("--no_ood", action="store_true")
     parser.add_argument("--lightweight", action="store_true")
     parser.add_argument("--run_start_index", type=int, default=None)
     parser.add_argument("--run_end_index", type=int, default=None)
@@ -94,17 +91,14 @@ def main():
     out_dir = Path(args.out_dir)
     ensure_dir(out_dir)
 
-    # build ID and OOD processed datasets
-    assemble_processed_dataset_with_ood(
+    # build processed train/val/test datasets
+    assemble_processed_dataset_splits(
         run_dirs,
         out_dir,
         split_seed=args.split_seed,
         train_frac=args.train_frac,
         val_frac=args.val_frac,
-        ood_param=args.ood_param,
-        ood_value=args.ood_value,
         include_full_fields=not bool(args.lightweight),
-        enable_ood=not bool(args.no_ood),
     )
 
     # Keep dataset-spec metadata next to split index so export can enforce
