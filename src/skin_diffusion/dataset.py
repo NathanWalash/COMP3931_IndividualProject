@@ -237,23 +237,6 @@ def stack_runs(runs, include_full_fields=True):
     return data
 
 
-def select_id_ood_runs(runs, ood_param="patch_width", ood_value=0.25, tol=1e-12):
-    # simple holdout split: runs matching ood_value go to OOD
-    if ood_param != "patch_width":
-        raise ValueError("Only patch_width OOD split is supported")
-
-    id_runs = []
-    ood_runs = []
-    for run in runs:
-        val = float(run["patch_width"])
-        if abs(val - float(ood_value)) <= tol:
-            ood_runs.append(run)
-        else:
-            id_runs.append(run)
-
-    return id_runs, ood_runs
-
-
 def save_split_npz(path, split_data):
     # skip empty splits
     if split_data is None:
@@ -441,19 +424,15 @@ def assemble_processed_dataset(run_dirs, out_dir, split_seed=123, train_frac=0.8
     return out_dir
 
 
-def assemble_processed_dataset_with_ood(
+def assemble_processed_dataset_splits(
     run_dirs,
     out_dir,
     split_seed=321,
     train_frac=0.7,
     val_frac=0.15,
-    ood_param="patch_width",
-    ood_value=0.25,
     include_full_fields=True,
-    enable_ood=True,
 ):
-    # build ID train/val/test plus OOD holdout set
-    # ID split is done only on non-ood runs
+    # Canonical processed assembly: train/val/test only.
     out_dir = Path(out_dir)
     ensure_dir(out_dir)
 
@@ -462,15 +441,8 @@ def assemble_processed_dataset_with_ood(
     for run_dir in tqdm(run_dirs, desc="loading runs"):
         runs.append(load_run_bundle(run_dir, include_full_fields=include_full_fields))
 
-    # hold out OOD runs first, then split ID runs
-    if enable_ood:
-        id_runs, ood_runs = select_id_ood_runs(runs, ood_param=ood_param, ood_value=ood_value)
-    else:
-        id_runs = runs
-        ood_runs = []
-
     train_idx, val_idx, test_idx = split_indices(
-        len(id_runs),
+        len(runs),
         split_seed=split_seed,
         train_frac=train_frac,
         val_frac=val_frac,
@@ -478,68 +450,47 @@ def assemble_processed_dataset_with_ood(
 
     train_runs = []
     for i in train_idx:
-        train_runs.append(id_runs[i])
+        train_runs.append(runs[i])
 
     val_runs = []
     for i in val_idx:
-        val_runs.append(id_runs[i])
+        val_runs.append(runs[i])
 
     test_runs = []
     for i in test_idx:
-        test_runs.append(id_runs[i])
+        test_runs.append(runs[i])
 
     # stack splits into batched arrays
     train_data = stack_runs(train_runs, include_full_fields=include_full_fields)
     val_data = stack_runs(val_runs, include_full_fields=include_full_fields)
     test_data = stack_runs(test_runs, include_full_fields=include_full_fields)
-    ood_data = stack_runs(ood_runs, include_full_fields=include_full_fields)
 
-    # save split files under id/ and ood/
-    id_dir = out_dir / "id"
-    ood_dir = out_dir / "ood"
-    ensure_dir(id_dir)
-    ensure_dir(ood_dir)
-
-    save_split_npz(id_dir / "v3_train.npz", train_data)
-    save_split_npz(id_dir / "v3_val.npz", val_data)
-    save_split_npz(id_dir / "v3_test.npz", test_data)
-    save_split_npz(ood_dir / "v3_ood_primary.npz", ood_data)
-
-    # keep root files so older notebooks/scripts still load as before
+    # save canonical split files at processed root
     save_split_npz(out_dir / "v3_train.npz", train_data)
     save_split_npz(out_dir / "v3_val.npz", val_data)
     save_split_npz(out_dir / "v3_test.npz", test_data)
 
-    # write one full summary and split-specific index files
+    # write one summary index in train/val/test terminology.
     report = {}
     report["split_seed"] = split_seed
     report["train_frac"] = train_frac
     report["val_frac"] = val_frac
-    if enable_ood:
-        report["ood"] = {"enabled": True, "parameter": ood_param, "value": ood_value}
-    else:
-        report["ood"] = {"enabled": False, "parameter": None, "value": None}
     if include_full_fields:
         report["assemble_mode"] = "full"
     else:
         report["assemble_mode"] = "lightweight"
     report["counts"] = {
         "total": len(runs),
-        "id_total": len(id_runs),
-        "ood_total": len(ood_runs),
         "train": len(train_runs),
         "val": len(val_runs),
         "test": len(test_runs),
     }
-    report["id_index"] = {
+    report["splits"] = {
         "train": build_index_entries(train_runs),
         "val": build_index_entries(val_runs),
         "test": build_index_entries(test_runs),
     }
-    report["ood_index"] = build_index_entries(ood_runs)
 
     write_json(out_dir / "index.json", report)
-    write_json(id_dir / "index.json", report["id_index"])
-    write_json(ood_dir / "index.json", {"ood_index": report["ood_index"]})
 
     return out_dir

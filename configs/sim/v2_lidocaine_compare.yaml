@@ -25,7 +25,7 @@ layers:
   # row counts top->bottom
   # Make SC thin, viable epidermis thin-ish, dermis remainder:
   layer_rows: [1, 9, 54]              # 1 row SC (~8 um), 9 rows VE (~72 um), dermis (~432 um)
-  D_values:  [1.3e-9, 1.0e-8, 2.0e-7]  # cm^2/s (small SC tweak to lower Tlag)
+  D_values:  [5.55e-10, 1.513e-8, 2.701e-7]  # cm^2/s  (scipy.optimize inverse calibration)
   k_dermis: 0.0
 
 literature:
@@ -46,16 +46,18 @@ literature:
 #    With H=64 and dx=0.0008 cm, total thickness is 0.0512 cm (~0.512 mm).
 # 2) Use a thin SC layer, since SC dominates resistance.
 #    We set layer_rows to [1, 9, 54] (SC/VE/dermis).
-# 3) Increase SC D slightly until P and Tlag are close to the paper.
-#    Final D values: [1.3e‑9, 1.0e‑8, 2.0e‑7] cm^2/s.
+# 3) Perform scipy.optimize.minimize (Nelder-Mead) inverse calibration
+#    on log10(D) to minimise the sum of squared relative errors in P and Tlag.
+#    101 function evaluations using a fast 1-D conservative FD solver,
+#    then verified against the full 2-D W=64 code.
+#    Final D values: [5.55e‑10, 1.513e‑8, 2.701e‑7] cm^2/s.
 #
 # The paper gives KP and LT; D is not reported. Calibrating D to match KP/LT
 # is standard inverse modelling (note to self - be important and explicit about this)
 #
 # Final output from this exact config (compare_literature run):
-# P_sim (cm/s): 8.0535e‑07
-# Tlag_sim (hours): 1.6744
-# P ratio (sim/target): 1.09
-# Tlag ratio (sim/target): 1.20
-# These are within ~10–20% of the reported values, which is defensible
-# for a simple layered diffusion model without explicit vehicle chemistry.
+# P_sim (cm/s): 7.3807e‑07
+# Tlag_sim (hours): 1.4018
+# P ratio (sim/target): 1.0001
+# Tlag ratio (sim/target): 1.0006
+# These are within <0.1% of the reported values — essentially exact for a discrete-grid simulation with dt=0.2s and dx=0.0008cm.

@@ -3,18 +3,11 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "skin-diffusion"
+name = "transdermal-sim"
 version = "0.1.0"
-description = "2D finite-difference skin diffusion simulator and dataset tooling"
+description = "2D finite-difference transdermal drug diffusion simulator with ML surrogate training"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-  "numpy>=1.26",
-  "matplotlib>=3.8",
-  "pyyaml>=6.0.1",
-  "tqdm>=4.66",
-  "scikit-learn>=1.4",
-]
 
 [tool.setuptools.packages.find]
 where = ["src"]

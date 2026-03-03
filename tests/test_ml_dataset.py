@@ -15,11 +15,8 @@ def test_export_ml_ready_dataset_feature_width(tmp_path):
     # Build the smallest valid processed dataset structure.
     processed = tmp_path / "processed"
     out_dir = tmp_path / "ml"
-    id_dir = processed / "id"
-    ood_dir = processed / "ood"
     run_dir = tmp_path / "runs" / "run_000"
-    id_dir.mkdir(parents=True, exist_ok=True)
-    ood_dir.mkdir(parents=True, exist_ok=True)
+    processed.mkdir(parents=True, exist_ok=True)
     run_dir.mkdir(parents=True, exist_ok=True)
 
     # fields.npz is needed for D summary feature extraction.
@@ -48,10 +45,9 @@ def test_export_ml_ready_dataset_feature_width(tmp_path):
     # Export reads J/t from processed split npz files.
     J_batch = np.zeros((1, 3), dtype=float)
     t_batch = np.tile(np.array([0.0, 1.0, 2.0], dtype=float), (1, 1))
-    np.savez(id_dir / "v3_train.npz", J=J_batch, t=t_batch)
-    np.savez(id_dir / "v3_val.npz", J=J_batch, t=t_batch)
-    np.savez(id_dir / "v3_test.npz", J=J_batch, t=t_batch)
-    np.savez(ood_dir / "v3_ood_primary.npz", J=J_batch, t=t_batch)
+    np.savez(processed / "v3_train.npz", J=J_batch, t=t_batch)
+    np.savez(processed / "v3_val.npz", J=J_batch, t=t_batch)
+    np.savez(processed / "v3_test.npz", J=J_batch, t=t_batch)
 
     # Index maps each split row to run metadata.
     row_ref = {
@@ -60,8 +56,7 @@ def test_export_ml_ready_dataset_feature_width(tmp_path):
         "metrics_path": str(run_dir / "metrics.json"),
     }
     index = {
-        "id_index": {"train": [row_ref], "val": [row_ref], "test": [row_ref]},
-        "ood_index": [row_ref],
+        "splits": {"train": [row_ref], "val": [row_ref], "test": [row_ref]},
     }
     write_json(processed / "index.json", index)
 
@@ -72,7 +67,7 @@ def test_export_ml_ready_dataset_feature_width(tmp_path):
     assert meta["scalar_target_names"] == ["P", "Tlag", "J_ss"]
     assert meta["scalar_target_source"] == "default"
 
-    train = np.load(out_dir / "id_train.npz")
+    train = np.load(out_dir / "train.npz")
     assert train["X"].shape == (1, len(FEATURE_NAMES))
     assert train["y_scalar"].shape == (1, 3)
 

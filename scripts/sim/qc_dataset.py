@@ -85,15 +85,10 @@ def collect_rows(index):
     # Flatten all split entries into one list.
     rows = []
 
-    id_index = index["id_index"]
+    split_index = index["splits"]
     for split_name in ["train", "val", "test"]:
-        split_label = "id_" + split_name
-        for entry in id_index[split_name]:
-            rows.append(copy_entry_with_split(entry, split_label))
-
-    ood_entries = index.get("ood_index", [])
-    for entry in ood_entries:
-        rows.append(copy_entry_with_split(entry, "ood_primary"))
+        for entry in split_index[split_name]:
+            rows.append(copy_entry_with_split(entry, split_name))
 
     return rows
 
@@ -155,10 +150,9 @@ def split_rows(rows):
     # Group rows by split name.
     # Fixed keys keep report shape stable across runs.
     out = {}
-    out["id_train"] = []
-    out["id_val"] = []
-    out["id_test"] = []
-    out["ood_primary"] = []
+    out["train"] = []
+    out["val"] = []
+    out["test"] = []
 
     for row in rows:
         split_name = row["split"]
@@ -175,63 +169,20 @@ def check_split_rules(index, rows_by_split):
     # This catches partial exports or bad indexing.
     counts = index.get("counts", {})
     expected = {}
-    expected["id_train"] = int(counts.get("train", -1))
-    expected["id_val"] = int(counts.get("val", -1))
-    expected["id_test"] = int(counts.get("test", -1))
-    expected["ood_primary"] = int(counts.get("ood_total", -1))
+    expected["train"] = int(counts.get("train", -1))
+    expected["val"] = int(counts.get("val", -1))
+    expected["test"] = int(counts.get("test", -1))
 
     actual = {}
-    actual["id_train"] = len(rows_by_split["id_train"])
-    actual["id_val"] = len(rows_by_split["id_val"])
-    actual["id_test"] = len(rows_by_split["id_test"])
-    actual["ood_primary"] = len(rows_by_split["ood_primary"])
+    actual["train"] = len(rows_by_split["train"])
+    actual["val"] = len(rows_by_split["val"])
+    actual["test"] = len(rows_by_split["test"])
 
     checks["count_match"] = {"expected": expected, "actual": actual}
 
-    # 2) OOD policy check (when an OOD holdout is enabled).
-    ood_cfg = index.get("ood", {})
-    if not isinstance(ood_cfg, dict):
-        ood_cfg = {}
-    ood_enabled = bool(ood_cfg.get("enabled", True))
-    ood_total = int(counts.get("ood_total", 0))
-
-    if ood_enabled and ood_total > 0 and ood_cfg.get("value") is not None:
-        # OOD patch width must be excluded from ID splits.
-        ood_value = float(ood_cfg["value"])
-
-        id_patch_widths = []
-        for split_name in ["id_train", "id_val", "id_test"]:
-            for row in rows_by_split[split_name]:
-                id_patch_widths.append(row["patch_width"])
-
-        ood_patch_widths = []
-        for row in rows_by_split["ood_primary"]:
-            ood_patch_widths.append(row["patch_width"])
-
-        id_contains_ood_value = bool(np.any(np.isclose(id_patch_widths, ood_value)))
-
-        if len(ood_patch_widths) == 0:
-            ood_all_match_value = False
-        else:
-            ood_all_match_value = bool(np.all(np.isclose(ood_patch_widths, ood_value)))
-
-        ood_rule = {}
-        ood_rule["enabled"] = True
-        ood_rule["ood_value"] = ood_value
-        ood_rule["id_contains_ood_value"] = id_contains_ood_value
-        ood_rule["ood_all_match_value"] = ood_all_match_value
-        checks["ood_rule"] = ood_rule
-    else:
-        checks["ood_rule"] = {
-            "enabled": False,
-            "ood_value": None,
-            "id_contains_ood_value": None,
-            "ood_all_match_value": None,
-        }
-
-    # 3) Leakage check: a run must not appear in more than one split.
+    # 2) Leakage check: a run must not appear in more than one split.
     # Same run in multiple splits would leak information.
-    split_names = ["id_train", "id_val", "id_test", "ood_primary"]
+    split_names = ["train", "val", "test"]
     run_sets = {}
     for split_name in split_names:
         run_set = set()
@@ -283,7 +234,7 @@ def make_histograms(rows, out_dir):
     bins_by_field["k_dermis"] = np.array([-1.0e-8, 0.5e-5, 2.0e-5, 6.0e-5, 1.5e-4])
     bins_by_field["heterogeneity_steps"] = np.arange(2.5, 10.6, 1.0)
 
-    split_order = ["id_train", "id_val", "id_test", "ood_primary"]
+    split_order = ["train", "val", "test"]
     ncols = 4
     nrows = int(np.ceil(float(len(fields)) / float(ncols)))
     fig, axes = plt.subplots(nrows, ncols, figsize=(16, 3.6 * nrows), constrained_layout=True)
@@ -345,7 +296,7 @@ def make_histograms(rows, out_dir):
         axes[i].axis("off")
 
     axes[0].legend(fontsize=8)
-    fig.suptitle("Dataset QC Distributions By Split")
+    fig.suptitle("Dataset QC Distributions (train/val/test)")
     fig.savefig(out_dir / "qc_distributions.png", dpi=150)
     plt.close(fig)
 
@@ -411,7 +362,7 @@ def build_report(index, rows):
             }
         target_coverage[split_name] = split_cov
 
-    # Patch-width counts make OOD holdout checks easy to inspect.
+    # Patch-width counts make split-balance checks easy to inspect.
     patch_counts = {}
     for split_name, split_rows_list in rows_by_split.items():
         values = []

@@ -71,7 +71,7 @@ def load_run_bundle(run_dir):
 
 def load_split_entries(
     ml_dir,
-    split_name="id_train",
+    split_name="train",
     run_start_index=None,
     run_end_index=None,
     allow_empty=False,

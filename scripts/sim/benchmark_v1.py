@@ -68,7 +68,7 @@ def main():
 
     # keep sizes modest so memory stays reasonable
     # increase later if have more RAM (e.g., add 256 or 512 here) ask timon about super computer
-    sizes = [16, 32, 64, 128]
+    sizes = [16, 32, 64, 128, 256]
     runs = {}
 
     # keep the same physical save interval on every grid
@@ -92,49 +92,32 @@ def main():
             "dt": dt,
         }
 
-    # compare 16 vs 32, 32 vs 64, and 64 vs 128
-    C16 = runs[16]["C"]
-    t16 = runs[16]["t"]
-    C32 = runs[32]["C"]
-    t32 = runs[32]["t"]
-    C64 = runs[64]["C"]
-    t64 = runs[64]["t"]
-    C128 = runs[128]["C"]
-    t128 = runs[128]["t"]
+    # compare consecutive grid pairs
+    pairs = list(zip(sizes[:-1], sizes[1:]))
+    all_errors = {}
+    all_times = {}
 
-    # restrict fine grids by block averaging
-    C16_from_32 = block_average_restrict(C32)
-    C64_from_128 = block_average_restrict(C128)
-    C32_from_64 = block_average_restrict(C64)
+    for coarse, fine in pairs:
+        C_coarse = runs[coarse]["C"]
+        t_coarse = runs[coarse]["t"]
+        C_restricted = block_average_restrict(runs[fine]["C"])
 
-    # compute errors over time (L2)
-    # use the shared time length for each pair
-    n16_32 = min(len(t16), len(C16_from_32))
-    n32_64 = min(len(t32), len(C32_from_64))
-    n64_128 = min(len(t64), len(C64_from_128))
-    errors_16_32 = []
-    for i in range(n16_32):
-        err = l2_error(C16[i], C16_from_32[i])
-        errors_16_32.append(err)
+        n = min(len(t_coarse), len(C_restricted))
+        errs = []
+        for i in range(n):
+            errs.append(l2_error(C_coarse[i], C_restricted[i]))
 
-    errors_32_64 = []
-    for i in range(n32_64):
-        err = l2_error(C32[i], C32_from_64[i])
-        errors_32_64.append(err)
+        label = f"{coarse}_vs_{fine}"
+        all_errors[label] = errs
+        all_times[label] = [float(t) for t in t_coarse[:n]]
 
-    errors_64_128 = []
-    for i in range(n64_128):
-        err = l2_error(C64[i], C64_from_128[i])
-        errors_64_128.append(err)
-
-    # plot both error curves
+    # plot error curves
     fig_dir = Path("figures") / "validation"
     ensure_dir(fig_dir)
     fig_path = fig_dir / "v1_convergence.png"
     plt.figure()
-    plt.plot(t16[:n16_32], errors_16_32, label="16 vs 32")
-    plt.plot(t32[:n32_64], errors_32_64, label="32 vs 64")
-    plt.plot(t64[:n64_128], errors_64_128, label="64 vs 128")
+    for label in all_errors:
+        plt.plot(all_times[label], all_errors[label], label=label.replace("_", " "))
     plt.xlabel("time")
     plt.ylabel("L2 error")
     plt.yscale("log")
@@ -143,61 +126,23 @@ def main():
     plt.savefig(fig_path, dpi=150)
     plt.close()
 
-    # build report lists
-    t_list_16 = []
-    for t in t16[:n16_32]:
-        t_list_16.append(float(t))
-    t_list_32 = []
-    for t in t32[:n32_64]:
-        t_list_32.append(float(t))
-    t_list_64 = []
-    for t in t64[:n64_128]:
-        t_list_64.append(float(t))
-
-    err_list_16_32 = []
-    for e in errors_16_32:
-        err_list_16_32.append(float(e))
-    err_list_32_64 = []
-    for e in errors_32_64:
-        err_list_32_64.append(float(e))
-    err_list_64_128 = []
-    for e in errors_64_128:
-        err_list_64_128.append(float(e))
-
     # summary numbers for quick evidence
-    summary = {
-        "16_vs_32": {
-            "mean": float(np.mean(errors_16_32)),
-            "final": float(errors_16_32[-1]),
-            "max": float(np.max(errors_16_32)),
-        },
-        "32_vs_64": {
-            "mean": float(np.mean(errors_32_64)),
-            "final": float(errors_32_64[-1]),
-            "max": float(np.max(errors_32_64)),
-        },
-        "64_vs_128": {
-            "mean": float(np.mean(errors_64_128)),
-            "final": float(errors_64_128[-1]),
-            "max": float(np.max(errors_64_128)),
-        },
-    }
+    summary = {}
+    for label, errs in all_errors.items():
+        summary[label] = {
+            "mean": float(np.mean(errs)),
+            "final": float(errs[-1]),
+            "max": float(np.max(errs)),
+        }
 
     # write report json for the reporting
-    report = {
-        "timestamp": datetime.now().isoformat(),
-        "t_save_16": t_list_16,
-        "t_save_32": t_list_32,
-        "t_save_64": t_list_64,
-        "errors_16_vs_32": err_list_16_32,
-        "errors_32_vs_64": err_list_32_64,
-        "errors_64_vs_128": err_list_64_128,
-        "summary": summary,
-        "grid_16": {"H": 16, "W": 16, "dx": runs[16]["dx"], "dt": runs[16]["dt"]},
-        "grid_32": {"H": 32, "W": 32, "dx": runs[32]["dx"], "dt": runs[32]["dt"]},
-        "grid_64": {"H": 64, "W": 64, "dx": runs[64]["dx"], "dt": runs[64]["dt"]},
-        "grid_128": {"H": 128, "W": 128, "dx": runs[128]["dx"], "dt": runs[128]["dt"]},
-    }
+    report = {"timestamp": datetime.now().isoformat()}
+    for label in all_errors:
+        report[f"t_save_{label.split('_vs_')[0]}"] = all_times[label]
+        report[f"errors_{label}"] = [float(e) for e in all_errors[label]]
+    report["summary"] = summary
+    for s in sizes:
+        report[f"grid_{s}"] = {"H": s, "W": s, "dx": runs[s]["dx"], "dt": runs[s]["dt"]}
 
     report_dir = Path(cfg.output_dir) / "benchmark"
     ensure_dir(report_dir)

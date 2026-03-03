@@ -1,0 +1,128 @@
+{
+  "scalar_train_seconds": 0.01838541030883789,
+  "curve_train_seconds": 0.7134451866149902,
+  "use_xgboost": false,
+  "target_names": [
+    "P",
+    "J_ss",
+    "J_peak",
+    "t_peak",
+    "M_delivered_24h"
+  ],
+  "feature_names": [
+    "patch_width",
+    "patch_offset",
+    "C0",
+    "decay_rate",
+    "k_dermis",
+    "heterogeneity_sigma",
+    "heterogeneity_steps",
+    "dose_proxy_c0_over_decay",
+    "log_decay_rate",
+    "width_times_sigma",
+    "c0_times_width",
+    "decay_times_width",
+    "sigma_times_width",
+    "D_mean",
+    "D_std",
+    "D_p10",
+    "D_p50",
+    "D_p90",
+    "D_top_mean",
+    "D_bottom_mean"
+  ],
+  "feature_count": 20,
+  "scalar_models": [
+    {
+      "target": "P",
+      "model_family": "ridge",
+      "transform": {
+        "kind": "log10",
+        "eps": 1.2167857363157298e-23
+      },
+      "hyperparams": {
+        "alpha": 100.0
+      },
+      "train_rows": 700,
+      "val_rows": 150
+    },
+    {
+      "target": "J_ss",
+      "model_family": "ridge",
+      "transform": {
+        "kind": "log10",
+        "eps": 1.0871344594689794e-23
+      },
+      "hyperparams": {
+        "alpha": 100.0
+      },
+      "train_rows": 700,
+      "val_rows": 150
+    },
+    {
+      "target": "J_peak",
+      "model_family": "ridge",
+      "transform": {
+        "kind": "log10",
+        "eps": 8.246748084634564e-14
+      },
+      "hyperparams": {
+        "alpha": 0.001
+      },
+      "train_rows": 700,
+      "val_rows": 150
+    },
+    {
+      "target": "t_peak",
+      "model_family": "ridge",
+      "transform": {
+        "kind": "log10",
+        "eps": 2.94
+      },
+      "hyperparams": {
+        "alpha": 1.0
+      },
+      "train_rows": 700,
+      "val_rows": 150
+    },
+    {
+      "target": "M_delivered_24h",
+      "model_family": "ridge",
+      "transform": {
+        "kind": "log10",
+        "eps": 5.045295201256293e-10
+      },
+      "hyperparams": {
+        "alpha": 0.001
+      },
+      "train_rows": 700,
+      "val_rows": 150
+    }
+  ],
+  "curve_model": {
+    "model_family": "ridge",
+    "alpha": 0.001
+  },
+  "curve_transform": {
+    "kind": "log10",
+    "eps": 1e-30
+  },
+  "curve_components": 20,
+  "split_rows": {
+    "train": 700,
+    "val": 150,
+    "test": 150
+  },
+  "train_filtered_row_count": 700,
+  "run_index_filter": {
+    "start": null,
+    "end": null
+  },
+  "run_root_override": null,
+  "physics_diagnostics": {
+    "val_summary_file": "diagnostics/physics/physics_diag_val_summary.json",
+    "test_summary_file": "diagnostics/physics/physics_diag_test_summary.json",
+    "val_worst_file": "diagnostics/physics/physics_diag_val_worst.json",
+    "test_worst_file": "diagnostics/physics/physics_diag_test_worst.json"
+  }
+}

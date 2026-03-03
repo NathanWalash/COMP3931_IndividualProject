@@ -1,40 +1,95 @@
 # Validation And Trustworthiness Overview
 
-This is a short map of what to run and what each step proves.
+This note combines the validation map and method details in one place.
 
-## Core validations
+## 1) V1 baseline validation
 
-- V1 baseline validation (`scripts/sim/validate_v1.py`)
-  - Proves: solver behaves correctly in the simplest setup.
-  - Evidence: `figures/validation/v1`, `outputs/sim/v1/meta.json`.
+Script: `scripts/sim/validate_v1.py`  
+Config: `configs/sim/v1_baseline.yaml`
 
-- V2 layered diffusion (`scripts/sim/validate_v2.py`)
-  - Proves: variable-D solver behaves as expected with layered structure.
-  - Evidence: `figures/validation/v2`, `outputs/sim/v2/metrics.json`.
+Purpose:
+- Sanity check for the simplest constant-D case.
+- Confirm boundary conditions are applied correctly.
+- Show expected diffusion from patch into depth.
 
-- V3 heterogeneity + patch geometry (`scripts/sim/validate_v3.py`)
-  - Proves: 2D behavior and lateral diffusion are handled correctly.
-  - Evidence: `figures/validation/v3`.
+Evidence:
+- `figures/validation/v1/*` (heatmaps + depth profiles)
+- `outputs/sim/v1/meta.json` (run config + stability limits)
 
-## Convergence / numerical correctness
+## 2) V2 layered diffusion validation
 
-- Grid convergence study (`scripts/sim/benchmark_v1.py`)
-  - Proves: error decreases under refinement.
-  - Evidence: `figures/validation/v1_convergence.png`,
-    `outputs/sim/v1/benchmark/report.json`.
+Script: `scripts/sim/validate_v2.py`  
+Config: `configs/sim/v2_layers_clearance.yaml`
 
-- Analytic 1D comparison (`scripts/sim/benchmark_v1_1d.py`)
-  - Proves: solver matches a textbook diffusion solution.
-  - Evidence: `outputs/sim/v1/benchmark/report_1d.json`.
+Purpose:
+- Check layered D (SC / VE / dermis).
+- Show slower transport through SC.
+- Show dermal clearance impact when k is enabled.
 
-## Literature validation
+Evidence:
+- `figures/validation/v2/*` (D map, k map, heatmaps, profiles)
+- `outputs/sim/v2/metrics.json`
 
-- Lidocaine Franz-cell comparison (`scripts/sim/compare_literature.py`)
-  - Proves: model can match reported permeability/lag time within ~10-20%.
-  - Evidence: console output + calibration notes in the YAML.
+## 3) V3 2D patch + heterogeneity validation
 
-## Unit tests
+Script: `scripts/sim/validate_v3.py`  
+Config: `configs/sim/v3_hetero_patch_timeDecay.yaml`
+
+Purpose:
+- Test full 2D behavior (patch widths/offsets).
+- Confirm lateral diffusion and heterogeneity effects.
+
+Evidence:
+- `figures/validation/v3/*` (per-case heatmaps + lateral profiles)
+
+## 4) Convergence (grid refinement)
+
+Script: `scripts/sim/benchmark_v1.py`
+
+Method:
+- Run multiple grids (e.g., 16/32/64/128).
+- Keep physical time and stability scaling consistent.
+- Compare coarse vs fine using block-averaged restriction.
+
+What it proves:
+- Errors decrease under refinement (numerical convergence).
+
+Evidence:
+- `figures/validation/v1_convergence.png`
+- `outputs/sim/v1/benchmark/report.json`
+
+## 5) Analytic 1D comparison (Crank)
+
+Script: `scripts/sim/benchmark_v1_1d.py`
+
+Method:
+- Use full-width patch so the setup is 1D in depth.
+- Compare numeric depth profile to finite-slab analytic series solution.
+
+What it proves:
+- Solver matches textbook diffusion behavior.
+
+Evidence:
+- `outputs/sim/v1/benchmark/report_1d.json`
+
+## 6) Literature validation (lidocaine)
+
+Script: `scripts/sim/compare_literature.py`  
+Config: `configs/sim/v2_lidocaine_compare.yaml`
+
+Method:
+- Simulate layered case matching experiment assumptions.
+- Compare simulated `P` and `Tlag` to paper targets.
+
+What it proves:
+- Model can match reported permeation parameters within ~10–20%.
+
+Evidence:
+- compare script output
+- calibration notes in YAML
+
+## 7) Unit tests
 
 - Run: `python -m pytest -q`
-  - setup: `pip install -r requirements.txt`
-  - Covers BCs, operators, metrics, and stability logic.
+- Setup: `pip install -r requirements.txt`
+- Covers BCs, operators, metrics, dataset assembly, and stability logic.

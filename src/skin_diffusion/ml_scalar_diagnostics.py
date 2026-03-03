@@ -19,11 +19,21 @@ def rel_percent_error(y_true, y_pred, eps=1e-12):
 
 
 def safe_r2(y_true, y_pred):
-    # Return NaN instead of hard errors for degenerate inputs.
+    # Return a finite score for degenerate targets.
+    # For near-constant y_true, classic R^2 is undefined. We map this to:
+    # - 1.0 when prediction error is effectively zero
+    # - 0.0 otherwise
+    # Uses coefficient of variation (scale-invariant) to detect constant targets,
+    # avoiding false positives for small-magnitude physical quantities like flux.
     if len(y_true) < 2:
         return float("nan")
-    if np.allclose(np.var(y_true), 0.0):
-        return float("nan")
+    std = float(np.std(y_true))
+    mean_abs = float(np.mean(np.abs(y_true)))
+    cv = std / (mean_abs + 1e-30)  # coefficient of variation
+    if cv < 1e-6:
+        # Truly constant target — R² is undefined
+        mse = float(np.mean((y_true - y_pred) ** 2))
+        return 1.0 if mse / (std**2 + 1e-30) < 1e-6 else 0.0
     return float(r2_score(y_true, y_pred))
 
 

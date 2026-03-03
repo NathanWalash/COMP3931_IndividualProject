@@ -71,7 +71,7 @@ Purpose:
 ## tests/test_ml_run_dataset.py
 
 Purpose:
-- Validate shared ML run/split loading utilities used by the hybrid PINN.
+- Validate shared ML run/split loading utilities used by ML trainers.
 
 What it checks:
 - `load_split_entries` respects run-index filtering and split-row mapping.

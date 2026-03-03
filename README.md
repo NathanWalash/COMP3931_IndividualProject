@@ -114,22 +114,19 @@ Check run integrity (find broken/incomplete runs):
   - optional explicit seed mapping:
     - `python -m scripts.sim.fix_runs --config configs/sim/v3_literature_dataset_spec.yaml --run_start_index 500 --run_end_index 999 --seed_offset 1000 --apply`
 
-Assemble ID/OOD splits:
+Assemble processed train/val/test splits:
 - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml`
 - clearance-sensitivity variant:
   - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec_clearance.yaml`
 - low-memory option for large datasets:
   - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml --lightweight`
-- ID-only option (no OOD holdout):
-  - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml --lightweight --no_ood`
 - optional run index slicing (inclusive):
   - `python -m scripts.sim.assemble_dataset --config configs/sim/v3_literature_dataset_spec.yaml --run_start_index 0 --run_end_index 499`
 
 Outputs:
-- `data/processed/id/v3_train.npz`
-- `data/processed/id/v3_val.npz`
-- `data/processed/id/v3_test.npz`
-- optional: `data/processed/ood/v3_ood_primary.npz` (when OOD holdout is enabled)
+- `data/processed/v3_train.npz`
+- `data/processed/v3_val.npz`
+- `data/processed/v3_test.npz`
 - `data/processed/index.json`
 
 Export ML-ready splits:
@@ -142,7 +139,7 @@ ML feature vector now includes:
 - D-field summaries from each run (`mean/std/p10/p50/p90/top_mean/bottom_mean`)
 
 Export behavior:
-- `export_ml_dataset` rebuilds ID train/val/test with stratification while
+- `export_ml_dataset` rebuilds train/val/test with stratification while
   preserving split counts from `data/processed/index.json`.
 - scalar targets in `y_scalar` are read from dataset-spec `targets.primary`
   (fallback is `[P, Tlag, J_ss]` for older processed datasets).
@@ -154,15 +151,15 @@ Subset evaluation/training by run index (inclusive):
   - `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --run_start_index 0 --run_end_index 499`
   - optional staged local run bundles:
     `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --run_root_override /tmp/staged_local_dataset/v3_literature_dataset_clearance_v1/dataset`
-- Train (hybrid PINN, discrete-physics):
-  - `python -m scripts.ml.train_pinn_discrete --ml_dir data/processed/ml --out_dir outputs/ml/pinn_discrete --device cuda --run_start_index 0 --run_end_index 499`
+- Train (PINN, report-primary):
+  - `python -m scripts.ml.train_pinn --ml_dir data/processed/ml --out_dir outputs/ml/pinn --device cuda --run_start_index 0 --run_end_index 499`
   - optional staged local run bundles:
-    `python -m scripts.ml.train_pinn_discrete --ml_dir data/processed/ml --out_dir outputs/ml/pinn_discrete --device cuda --run_root_override /tmp/staged_local_dataset/v3_literature_dataset_clearance_v1/dataset`
-  - optional OOD row cap (OOD is auto-used when `ood_primary` exists):
-    `python -m scripts.ml.train_pinn_discrete --ml_dir data/processed/ml --out_dir outputs/ml/pinn_discrete --max_ood_rows 128`
-  - both blackbox and hybrid write aligned prediction + physics diagnostics
-    files (`pred_id_*.npz`, optional `pred_ood_primary.npz`,
-    `diagnostics/physics/physics_diag_*`) for ID val/test comparison.
+    `python -m scripts.ml.train_pinn --ml_dir data/processed/ml --out_dir outputs/ml/pinn --device cuda --run_root_override /tmp/staged_local_dataset/v3_literature_dataset_clearance_v1/dataset`
+  - blackbox/PINN write aligned prediction + physics diagnostics
+    files (`pred_val.npz`, `pred_test.npz`,
+    `diagnostics/physics/physics_diag_*`) for val/test comparison.
+  - scalar comparison is standardized via scalar targets derived from predicted
+    `J(t)` for fairness across model families.
 
 ### 6) Runtime profiling
 
@@ -207,8 +204,8 @@ Main simulation configs:
 - `configs/sim/v3_literature_dataset_spec_clearance.yaml` (clearance-sensitivity dataset spec)
 
 ML configs:
-- No static PINN YAML config is required for the hybrid path.
-- Use CLI flags in `scripts/ml/train_pinn_discrete.py` for runtime control.
+- No static PINN YAML config is required.
+- Use CLI flags in `scripts/ml/train_pinn.py` for runtime control.
 
 Key sections:
 - `grid`: `H, W, dx, dt, T, save_every`
@@ -230,11 +227,9 @@ sampled from this discrete set to keep the input space simple and consistent.
 ## Docs
 
 - `docs/metrics_process_overview.md`: pipeline summary and key metrics
-- `docs/validation_overview.md`: validation/benchmark map
-- `docs/validation_methods.md`: methods and evidence for the report
+- `docs/validation_overview.md`: validation map, methods, and evidence
 - `docs/figures_guide.md`: how to interpret figures
 - `docs/dataset_spec.md`: run bundle + processed dataset schema
 - `docs/outputs_guide.md`: outputs and where they are written
 - `docs/config_guide.md`: config fields and options
-- `docs/notebooks_guide.md`: what each notebook demonstrates
 - `docs/tests_overview.md`: unit test summary
