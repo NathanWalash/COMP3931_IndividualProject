@@ -72,10 +72,12 @@ def main():
         C0, D_scalar, cfg.grid, cfg.boundary, patch_mask
     )
 
-    # compare profiles at a few times
-    # we pick start, middle, end of the run
-    # profile = x-averaged concentration vs depth
-    idxs = [0, len(t_save) // 2, len(t_save) - 1]
+    # compare profiles at many times for a convincing error-decay curve
+    # log-spaced indices covering the full simulation (plus t=0)
+    n_samples = min(25, len(t_save))
+    idxs_set = set([0, len(t_save) - 1])  # always include start and end
+    idxs_set.update(np.unique(np.geomspace(1, len(t_save) - 1, n_samples - 1, dtype=int)))
+    idxs = sorted(idxs_set)
     errors = []
     for i in idxs:
         # time for this snapshot
