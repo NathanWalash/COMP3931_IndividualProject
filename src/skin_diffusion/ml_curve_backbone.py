@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_squared_error
+from sklearn.multioutput import MultiOutputRegressor
 from sklearn.preprocessing import StandardScaler
 
 
@@ -70,8 +71,10 @@ def fit_curve_backbone(
     j_val_true,
     curve_components=20,
     alpha_grid=None,
+    use_xgboost=False,
 ):
-    # Fit the same PCA+ridge curve backbone used by blackbox/hybrid entry points.
+    # Fit PCA + regressor curve backbone.  When use_xgboost is True the candidate pool 
+    # includes XGBoost multi-output regressors alongside Ridge giving PINN a stronger starting point
     if alpha_grid is None:
         alpha_grid = [1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0]
 
@@ -92,27 +95,68 @@ def fit_curve_backbone(
     pca = PCA(n_components=max_components)
     z_train = pca.fit_transform(j_train_transformed)
 
-    best_alpha = None
-    best_model = None
-    best_val_rmse = float("inf")
+    # Build candidate list: always include Ridge, optionally add XGBoost 
+    candidates = []
     alpha_index = 0
     while alpha_index < len(alpha_grid):
-        alpha_value = float(alpha_grid[alpha_index])
-        ridge = Ridge(alpha=alpha_value)
-        ridge.fit(x_train_scaled, z_train)
-        z_val_pred = ridge.predict(x_val_scaled)
+        candidates.append(
+            {"family": "ridge", "alpha": float(alpha_grid[alpha_index])}
+        )
+        alpha_index += 1
+
+    if use_xgboost:
+        from xgboost import XGBRegressor
+        for n_est, depth, lr in [(300, 3, 0.05), (400, 4, 0.05), (500, 5, 0.03)]:
+            candidates.append({"family": "xgboost", "n_estimators": n_est, "max_depth": depth, "learning_rate": lr})
+
+    best_label = None
+    best_model = None
+    best_val_rmse = float("inf")
+    best_family = "ridge"
+    best_hyperparams = {}
+
+    for cand in candidates:
+        family = cand["family"]
+        if family == "ridge":
+            model = Ridge(alpha=cand["alpha"])
+            label = "ridge_alpha=" + str(cand["alpha"])
+            hparams = {"alpha": cand["alpha"]}
+        else:
+            base_xgb = XGBRegressor(
+                n_estimators=int(cand["n_estimators"]),
+                max_depth=int(cand["max_depth"]),
+                learning_rate=float(cand["learning_rate"]),
+                subsample=0.9,
+                colsample_bytree=0.9,
+                objective="reg:squarederror",
+                random_state=0,
+                n_jobs=1,
+            )
+            model = MultiOutputRegressor(base_xgb)
+            label = "xgb_n" + str(cand["n_estimators"]) + "_d" + str(cand["max_depth"])
+            hparams = {
+                "n_estimators": int(cand["n_estimators"]),
+                "max_depth": int(cand["max_depth"]),
+                "learning_rate": float(cand["learning_rate"]),
+            }
+
+        model.fit(x_train_scaled, z_train)
+        z_val_pred = model.predict(x_val_scaled)
         j_val_pred_transformed = pca.inverse_transform(z_val_pred)
         j_val_pred = invert_curve_transform(j_val_pred_transformed, transform)
         j_val_pred = np.maximum(j_val_pred, 0.0)
         val_rmse = float(np.sqrt(mean_squared_error(j_val_true, j_val_pred)))
         if val_rmse < best_val_rmse:
-            best_alpha = alpha_value
-            best_model = ridge
+            best_label = label
+            best_model = model
             best_val_rmse = val_rmse
-        alpha_index += 1
+            best_family = family
+            best_hyperparams = hparams
 
     if best_model is None:
         raise ValueError("Backbone fit failed")
+
+    print("backbone selected:", best_label, "val_rmse=", best_val_rmse)
 
     return {
         "scaler": scaler,
@@ -120,7 +164,9 @@ def fit_curve_backbone(
         "transform": transform,
         "curve_transform": transform,
         "ridge": best_model,
-        "ridge_alpha": float(best_alpha),
+        "ridge_alpha": float(best_hyperparams.get("alpha", 0.0)),
+        "backbone_family": str(best_family),
+        "backbone_hyperparams": best_hyperparams,
         "val_rmse": float(best_val_rmse),
     }
 
