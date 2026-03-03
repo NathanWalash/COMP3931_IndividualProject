@@ -7,30 +7,13 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from skin_diffusion.ml_curve_plots import plot_curve_error_over_time, plot_curve_examples
-from skin_diffusion.ml_curve_backbone import (
-    fit_curve_backbone,
-    parse_float_csv,
-    predict_curve_backbone,
-)
+from scripts.ml.pinn_data import build_entries, extract_c0_feature, load_ml_meta_names, load_run_physics_1d, load_split_matrix, load_split_name_map, pack_for_training, tensorize_pack
+from scripts.ml.pinn_model import RunConditionedPINN, curriculum_scale, evaluate_cstar_rmse, predict_flux_curves, sample_depth_ids, sample_time_ids
+from skin_diffusion.ml_curve_plots import plot_curve_error_over_time, plot_curve_examples, plot_per_run_error_distribution, plot_training_history
+from skin_diffusion.ml_curve_backbone import fit_curve_backbone, parse_float_csv, predict_curve_backbone
 from skin_diffusion.ml_metrics import compute_curve_metrics
-from skin_diffusion.ml_physics_diagnostics import (
-    build_worst_case_report,
-    compute_split_physics_diagnostics,
-    write_rows_csv,
-)
-from skin_diffusion.ml_run_dataset import (
-    load_split_2d_array,
-    load_split_entries,
-    remap_run_dir,
-)
-from skin_diffusion.ml_scalar_diagnostics import (
-    build_scalar_rmse_summary,
-    plot_scalar_parity,
-    plot_scalar_residual_hist,
-    scalar_report,
-    scalar_targets_from_flux_curves,
-)
+from skin_diffusion.ml_physics_diagnostics import build_worst_case_report, compute_split_physics_diagnostics, write_rows_csv
+from skin_diffusion.ml_scalar_diagnostics import build_scalar_rmse_summary, plot_scalar_parity, plot_scalar_residual_hist, scalar_report, scalar_targets_from_flux_curves
 from skin_diffusion.utils import ensure_dir
 
 
@@ -55,400 +38,6 @@ def set_global_seed(seed_value):
         torch.cuda.manual_seed_all(seed_int)
 
 
-def build_entries(
-    ml_dir,
-    split_name,
-    run_start_index=None,
-    run_end_index=None,
-    max_rows=None,
-    run_root_override=None,
-):
-    # Load split rows from ml/meta and remap run paths when using staged storage.
-    entries = load_split_entries(
-        ml_dir=ml_dir,
-        split_name=split_name,
-        run_start_index=run_start_index,
-        run_end_index=run_end_index,
-    )
-    out = []
-    for entry in entries:
-        row = dict(entry)
-        row["run_dir"] = remap_run_dir(entry["run_dir"], run_root_override)
-        out.append(row)
-    if max_rows is not None:
-        out = out[: int(max_rows)]
-    if len(out) == 0:
-        raise ValueError("No rows selected for split " + str(split_name))
-    return out
-
-
-def load_split_matrix(ml_dir, split_name, entries, key):
-    # Read one array block (X/J/t/...) for the selected split rows.
-    return load_split_2d_array(
-        ml_dir=ml_dir,
-        split_name=split_name,
-        entries=entries,
-        key=key,
-    ).astype(np.float32)
-
-
-def resolve_split_key(split_map, logical_name):
-    # Use canonical split keys only.
-    split_text = str(logical_name)
-    if split_text in split_map:
-        return split_text
-    raise ValueError(
-        "Could not find split key "
-        + split_text
-        + ". Expected one of: train, val, test"
-    )
-
-
-def load_split_name_map(ml_dir):
-    # Build a stable train/val/test -> file/index key map from ml/meta.json.
-    meta_path = Path(ml_dir) / "meta.json"
-    if not meta_path.exists():
-        raise ValueError("Missing meta.json in " + str(ml_dir))
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    split_map = meta.get("splits", {})
-    if not isinstance(split_map, dict):
-        raise ValueError("meta.json is missing splits")
-
-    result = {}
-    result["train"] = resolve_split_key(split_map, "train")
-    result["val"] = resolve_split_key(split_map, "val")
-    result["test"] = resolve_split_key(split_map, "test")
-    return result
-
-
-def load_ml_meta_names(ml_dir):
-    # Read feature and scalar target names used by scalar diagnostics.
-    meta_path = Path(ml_dir) / "meta.json"
-    if not meta_path.exists():
-        raise ValueError("Missing meta.json in " + str(ml_dir))
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-
-    feature_names = meta.get("feature_names", [])
-    if not isinstance(feature_names, list) or len(feature_names) == 0:
-        raise ValueError("meta.json is missing feature_names")
-
-    scalar_target_names = meta.get("scalar_target_names", [])
-    if not isinstance(scalar_target_names, list) or len(scalar_target_names) == 0:
-        raise ValueError("meta.json is missing scalar_target_names")
-
-    feature_out = []
-    feature_index = 0
-    while feature_index < len(feature_names):
-        feature_out.append(str(feature_names[feature_index]))
-        feature_index += 1
-
-    scalar_out = []
-    scalar_index = 0
-    while scalar_index < len(scalar_target_names):
-        scalar_out.append(str(scalar_target_names[scalar_index]))
-        scalar_index += 1
-    return feature_out, scalar_out
-
-
-def extract_c0_feature(x_raw, feature_names):
-    # C0 is needed to derive permeability-style scalar diagnostics from J(t).
-    if "C0" not in feature_names:
-        return np.full((int(x_raw.shape[0]),), np.nan, dtype=np.float32)
-    c0_column = int(feature_names.index("C0"))
-    return np.asarray(x_raw[:, c0_column], dtype=np.float32)
-
-
-def load_run_physics_1d(entries):
-    # Load 1D x-averaged concentration/material profiles from the exact simulator outputs.
-    d1d_rows = []
-    d1d_dy_rows = []
-    k1d_rows = []
-    c_star_rows = []
-    t_norm_rows = []
-    t_phys_rows = []
-    patch_width_rows = []
-    c0_rows = []
-    decay_rows = []
-    mode_rows = []
-    depth_rows = []
-    t_end_rows = []
-
-    t_count_ref = None
-    h_count_ref = None
-    row_count = len(entries)
-    row_index = 0
-    while row_index < row_count:
-        run_dir = Path(entries[row_index]["run_dir"])
-        fields_path = run_dir / "fields.npz"
-        meta_path = run_dir / "meta.json"
-        if not fields_path.exists():
-            raise ValueError("Missing fields.npz: " + str(fields_path))
-        if not meta_path.exists():
-            raise ValueError("Missing meta.json: " + str(meta_path))
-
-        with np.load(fields_path) as data:
-            c_snap = np.asarray(data["C_snap"], dtype=np.float32)
-            d_field = np.asarray(data["D"], dtype=np.float32)
-            k_field = np.asarray(data["k"], dtype=np.float32)
-            t_curve = np.asarray(data["t"], dtype=np.float32)
-
-        if c_snap.ndim != 3 or d_field.ndim != 2 or k_field.ndim != 2 or t_curve.ndim != 1:
-            raise ValueError("Invalid array shapes for run: " + str(run_dir))
-
-        t_count = int(c_snap.shape[0])
-        h_count = int(c_snap.shape[1])
-        if t_count_ref is None:
-            t_count_ref = t_count
-            h_count_ref = h_count
-        if t_count != int(t_count_ref) or h_count != int(h_count_ref):
-            raise ValueError("All runs must share C_snap shape [T,H,W] in selected split")
-
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        grid = meta.get("grid", {})
-        boundary = meta.get("boundary", {})
-        dx_value = float(grid.get("dx", 0.0))
-        if dx_value <= 0.0:
-            raise ValueError("Invalid dx in run metadata: " + str(run_dir))
-        depth_value = float((h_count - 1) * dx_value)
-        t_end_value = float(t_curve[-1])
-        if t_end_value <= 0.0:
-            raise ValueError("Invalid t_end in run fields: " + str(run_dir))
-
-        d1d = np.mean(d_field, axis=1).astype(np.float32)
-        y_star = np.linspace(0.0, 1.0, h_count, dtype=np.float32)
-        d1d_dy = np.gradient(d1d.astype(np.float64), y_star.astype(np.float64), edge_order=1).astype(np.float32)
-        k1d = np.mean(k_field, axis=1).astype(np.float32)
-        c1d = np.mean(c_snap, axis=2).astype(np.float32)
-
-        # Convert simulator concentration into dimensionless c*=C/C0 for PINN training.
-        c0_value = float(boundary.get("C0", 0.0))
-        c0_safe = max(c0_value, 1e-12)
-        c_star = np.clip(c1d / c0_safe, a_min=0.0, a_max=None).astype(np.float32)
-        # Normalize time to [0,1] so one model can cover different t_end values.
-        t_norm = np.asarray(t_curve / t_end_value, dtype=np.float32)
-
-        mode_text = str(boundary.get("mode", "infinite_dose"))
-        mode_rows.append(1.0 if mode_text == "time_decay" else 0.0)
-        patch_width_rows.append(float(boundary.get("patch_width", 0.5)))
-        c0_rows.append(c0_value)
-        decay_rows.append(float(boundary.get("decay_rate", 0.0)))
-        depth_rows.append(depth_value)
-        t_end_rows.append(t_end_value)
-        d1d_rows.append(d1d)
-        d1d_dy_rows.append(d1d_dy)
-        k1d_rows.append(k1d)
-        c_star_rows.append(c_star)
-        t_norm_rows.append(t_norm)
-        t_phys_rows.append(np.asarray(t_curve, dtype=np.float32))
-
-        row_index += 1
-        if row_index == row_count or row_index % 50 == 0:
-            print("loaded run physics", row_index, "/", row_count)
-
-    return {
-        "d1d": np.asarray(d1d_rows, dtype=np.float32),
-        "d1d_dy_star": np.asarray(d1d_dy_rows, dtype=np.float32),
-        "k1d": np.asarray(k1d_rows, dtype=np.float32),
-        "c_star": np.asarray(c_star_rows, dtype=np.float32),
-        "t_norm": np.asarray(t_norm_rows, dtype=np.float32),
-        "t_phys": np.asarray(t_phys_rows, dtype=np.float32),
-        "patch_width": np.asarray(patch_width_rows, dtype=np.float32),
-        "c0": np.asarray(c0_rows, dtype=np.float32),
-        "decay": np.asarray(decay_rows, dtype=np.float32),
-        "mode_flag": np.asarray(mode_rows, dtype=np.float32),
-        "depth": np.asarray(depth_rows, dtype=np.float32),
-        "t_end": np.asarray(t_end_rows, dtype=np.float32),
-    }
-
-
-def pack_for_training(features, j_true, j_base, phys):
-    # Keep all per-run arrays in one structure before moving to torch tensors.
-    return {
-        "x_feat": np.asarray(features, dtype=np.float32),
-        "j_true": np.asarray(j_true, dtype=np.float32),
-        "j_base": np.asarray(j_base, dtype=np.float32),
-        "d1d": np.asarray(phys["d1d"], dtype=np.float32),
-        "d1d_dy_star": np.asarray(phys["d1d_dy_star"], dtype=np.float32),
-        "k1d": np.asarray(phys["k1d"], dtype=np.float32),
-        "c_star": np.asarray(phys["c_star"], dtype=np.float32),
-        "t_norm": np.asarray(phys["t_norm"], dtype=np.float32),
-        "t_phys": np.asarray(phys["t_phys"], dtype=np.float32),
-        "patch_width": np.asarray(phys["patch_width"], dtype=np.float32),
-        "c0": np.asarray(phys["c0"], dtype=np.float32),
-        "decay": np.asarray(phys["decay"], dtype=np.float32),
-        "mode_flag": np.asarray(phys["mode_flag"], dtype=np.float32),
-        "depth": np.asarray(phys["depth"], dtype=np.float32),
-        "t_end": np.asarray(phys["t_end"], dtype=np.float32),
-    }
-
-
-def tensorize_pack(np_pack, device):
-    # Move numpy arrays to the selected device with one predictable dtype.
-    out = {}
-    for key in np_pack:
-        value = np_pack[key]
-        out[key] = torch.as_tensor(value, dtype=torch.float32, device=device)
-    return out
-
-
-class RunConditionedPINN(torch.nn.Module):
-    def __init__(self, feature_dim, hidden_dim=128, depth=4, fourier_frequencies=6):
-        super().__init__()
-        # Concentration head takes run features + (y,t) coordinates.
-        self.fourier_frequencies = int(max(0, fourier_frequencies))
-        if self.fourier_frequencies > 0:
-            freq_tensor = torch.arange(self.fourier_frequencies, dtype=torch.float32)
-            self.register_buffer("freq_values", torch.pow(2.0, freq_tensor))
-
-        layers = []
-        extra_dim = 0
-        if self.fourier_frequencies > 0:
-            # sin/cos for y and t.
-            extra_dim = 4 * self.fourier_frequencies
-        in_dim = int(feature_dim) + 2 + int(extra_dim)
-        layer_index = 0
-        while layer_index < int(depth):
-            layers.append(torch.nn.Linear(in_dim, int(hidden_dim)))
-            layers.append(torch.nn.Tanh())
-            in_dim = int(hidden_dim)
-            layer_index += 1
-        self.c_hidden = torch.nn.Sequential(*layers)
-        self.c_head = torch.nn.Linear(in_dim, 1)
-        torch.nn.init.zeros_(self.c_head.weight)
-        torch.nn.init.zeros_(self.c_head.bias)
-
-        # Flux head predicts a smooth multiplicative correction over a time basis.
-        flux_basis_count = 24
-        flux_layers = []
-        flux_in_dim = int(feature_dim)
-        flux_index = 0
-        while flux_index < int(depth):
-            flux_layers.append(torch.nn.Linear(flux_in_dim, int(hidden_dim)))
-            flux_layers.append(torch.nn.Tanh())
-            flux_in_dim = int(hidden_dim)
-            flux_index += 1
-        self.j_hidden = torch.nn.Sequential(*flux_layers)
-        self.j_coeff_head = torch.nn.Linear(flux_in_dim, flux_basis_count)
-        torch.nn.init.zeros_(self.j_coeff_head.weight)
-        torch.nn.init.zeros_(self.j_coeff_head.bias)
-        self.j_bias = torch.nn.Parameter(torch.tensor(0.0, dtype=torch.float32))
-        self.register_buffer("flux_basis_centers", torch.linspace(0.0, 1.0, flux_basis_count))
-        self.flux_basis_sigma = 1.5 / float(max(1, flux_basis_count - 1))
-
-    def forward_c(self, x_feat, y_star, t_star):
-        feature_parts = [x_feat, y_star, t_star]
-        if self.fourier_frequencies > 0:
-            freq = self.freq_values.to(dtype=x_feat.dtype, device=x_feat.device).reshape(1, -1)
-            y_phase = (2.0 * math.pi) * (y_star * freq)
-            t_phase = (2.0 * math.pi) * (t_star * freq)
-            feature_parts.extend(
-                [
-                    torch.sin(y_phase),
-                    torch.cos(y_phase),
-                    torch.sin(t_phase),
-                    torch.cos(t_phase),
-                ]
-            )
-        inp = torch.cat(feature_parts, dim=1)
-        # Output is dimensionless concentration c*=C/C0; nonnegativity is handled by loss terms.
-        return self.c_head(self.c_hidden(inp))
-
-    def forward_j(self, x_feat, t_star, j_base=None):
-        hidden = self.j_hidden(x_feat)
-        coeff = self.j_coeff_head(hidden)
-        t_clamped = torch.clamp(t_star, min=0.0, max=1.0)
-        centers = self.flux_basis_centers.to(dtype=t_clamped.dtype, device=t_clamped.device).reshape(1, -1)
-        z = (t_clamped - centers) / float(self.flux_basis_sigma)
-        basis = torch.exp(-0.5 * (z * z))
-        raw = torch.sum(coeff * basis, dim=1, keepdim=True) + self.j_bias
-        if j_base is None:
-            # Standalone flux branch is only used for debugging or ablations.
-            return torch.nn.functional.softplus(raw) * 1e-9
-        # Default path: apply a bounded multiplicative correction to the backbone flux.
-        corr = torch.exp(0.05 * torch.tanh(raw))
-        return torch.clamp(j_base * corr, min=0.0)
-
-    def forward(self, x_feat, y_star, t_star):
-        return self.forward_c(x_feat, y_star, t_star)
-
-
-def curriculum_scale(epoch_index, warmup_epochs, ramp_epochs):
-    # Increase physics-loss influence gradually after warmup.
-    if int(epoch_index) <= int(warmup_epochs):
-        return 0.0
-    ramp = max(1, int(ramp_epochs))
-    progress = float(int(epoch_index) - int(warmup_epochs)) / float(ramp)
-    return float(min(1.0, max(0.0, progress)))
-
-
-def sample_time_ids(signal_per_time, sample_count):
-    # Bias sampling toward informative times where concentration/flux is larger.
-    weights = torch.clamp(signal_per_time, min=0.0) + 1e-8
-    weights = weights / torch.sum(weights)
-    return torch.multinomial(weights, num_samples=int(sample_count), replacement=True)
-
-
-def sample_depth_ids(signal_per_depth, sample_count):
-    # Reuse weighted sampling on depth so collocation focuses on active regions.
-    weights = torch.clamp(signal_per_depth, min=0.0) + 1e-8
-    weights = weights / torch.sum(weights)
-    return torch.multinomial(weights, num_samples=int(sample_count), replacement=True)
-
-
-def evaluate_cstar_rmse(model, split_torch, max_points=16384):
-    # Fast concentration sanity metric sampled across run/time/depth points.
-    model.eval()
-    n_rows = int(split_torch["x_feat"].shape[0])
-    t_count = int(split_torch["c_star"].shape[1])
-    h_count = int(split_torch["c_star"].shape[2])
-    total_points = n_rows * t_count * h_count
-    sample_points = int(min(int(max_points), int(total_points)))
-
-    run_ids = torch.randint(low=0, high=n_rows, size=(sample_points,), device=split_torch["x_feat"].device)
-    time_ids = torch.randint(low=0, high=t_count, size=(sample_points,), device=split_torch["x_feat"].device)
-    y_ids = torch.randint(low=0, high=h_count, size=(sample_points,), device=split_torch["x_feat"].device)
-
-    x_sample = split_torch["x_feat"][run_ids]
-    t_sample = split_torch["t_norm"][run_ids, time_ids].reshape(-1, 1)
-    y_sample = (y_ids.to(torch.float32) / float(max(1, h_count - 1))).reshape(-1, 1)
-    target = split_torch["c_star"][run_ids, time_ids, y_ids].reshape(-1, 1)
-
-    with torch.no_grad():
-        pred = model(x_sample, y_sample, t_sample)
-
-    rmse = torch.sqrt(torch.mean((pred - target) ** 2))
-    return float(rmse.detach().cpu().item())
-
-
-def predict_flux_curves(model, split_torch, batch_runs=16):
-    # Predict full J(t) curves in batches to keep GPU memory bounded.
-    model.eval()
-    n_rows = int(split_torch["x_feat"].shape[0])
-    t_count = int(split_torch["t_norm"].shape[1])
-    out_rows = []
-
-    start = 0
-    while start < n_rows:
-        end = min(start + int(batch_runs), n_rows)
-        row_ids = torch.arange(start, end, device=split_torch["x_feat"].device, dtype=torch.long)
-        x_batch = split_torch["x_feat"][row_ids]
-        j_base_batch = split_torch["j_base"][row_ids]
-        t_batch = split_torch["t_norm"][row_ids]
-        local_count = int(end - start)
-
-        run_ids = torch.arange(local_count, device=split_torch["x_feat"].device, dtype=torch.long)
-        run_ids = run_ids.repeat_interleave(t_count)
-        x_points = x_batch[run_ids]
-        j_base_points = j_base_batch.reshape(-1, 1)
-        t_points = t_batch.reshape(-1, 1)
-        j_points = model.forward_j(x_points, t_points, j_base=j_base_points)
-        out_rows.append(j_points.reshape(local_count, t_count).detach().cpu().numpy().astype(np.float32))
-
-        start = end
-
-    return np.concatenate(out_rows, axis=0)
-
-
 def train_pinn(model, train_torch, val_torch, args):
     # Main training loop: data fit + physics losses with optional phase-2 tightening.
     optimizer = torch.optim.Adam(model.parameters(), lr=float(args.lr))
@@ -458,6 +47,9 @@ def train_pinn(model, train_torch, val_torch, args):
     phase1_epochs = int(args.epochs)
     phase2_epochs = int(args.phase2_epochs)
     total_epochs = int(phase1_epochs + phase2_epochs)
+
+    # Cosine annealing scheduler for smoother convergence over longer runs.
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_epochs, eta_min=float(args.lr) * 0.01)
 
     best_state = None
     best_val_rel_l2 = float("inf")
@@ -494,6 +86,15 @@ def train_pinn(model, train_torch, val_torch, args):
         c_signal_time = torch.mean(c_star_batch.detach(), dim=(0, 2))
         c_signal_depth = torch.mean(c_star_batch.detach(), dim=(0, 1))
         j_signal_time = torch.mean(torch.abs(j_true_batch.detach()), dim=0)
+
+        # Progressive correction scale: ramp from initial_correction_scale
+        # to correction_scale over the first half of training.
+        # Computed early because it is needed by forward_j calls below.
+        if hasattr(args, 'initial_correction_scale') and float(args.initial_correction_scale) < float(args.correction_scale):
+            ramp_frac = min(1.0, float(epoch_index) / float(max(1, phase1_epochs) * 0.5))
+            current_correction_scale = float(args.initial_correction_scale) + ramp_frac * (float(args.correction_scale) - float(args.initial_correction_scale))
+        else:
+            current_correction_scale = float(args.correction_scale)
 
         # Concentration supervision from simulator snapshots (stage-A sanity target).
         conc_count = int(args.concentration_points)
@@ -605,7 +206,7 @@ def train_pinn(model, train_torch, val_torch, args):
         x_flux = x_batch[run_ids_flux]
         t_flux = t_norm_batch[run_ids_flux, time_ids_flux].reshape(-1, 1)
         j_flux_base = j_base_batch[run_ids_flux, time_ids_flux].reshape(-1, 1)
-        j_flux_pred = model.forward_j(x_flux, t_flux, j_base=j_flux_base)
+        j_flux_pred = model.forward_j(x_flux, t_flux, j_base=j_flux_base, correction_scale_override=current_correction_scale)
 
         y_flux_bottom = torch.ones_like(t_flux)
         y_flux_inner = torch.full_like(t_flux, float(h_count - 2) / float(max(1, h_count - 1)))
@@ -629,6 +230,42 @@ def train_pinn(model, train_torch, val_torch, args):
         loss_flux_consistency = torch.mean((j_pred_asinh - j_from_c_asinh) ** 2)
         loss_nonneg = torch.mean(torch.relu(-j_flux_pred) ** 2)
 
+        # Peak-focused loss: differentiable J_peak and t_peak supervision.
+        # Uses soft-argmax to extract peak location and value from full curves.
+        loss_peak = torch.tensor(0.0, device=x_batch.device, dtype=torch.float32)
+        if float(args.weight_peak) > 0.0:
+            # Predict full curves for this batch for peak extraction.
+            peak_run_count = min(int(batch_count), 16)
+            peak_run_ids = torch.arange(peak_run_count, device=x_batch.device)
+            peak_x = x_batch[:peak_run_count]
+            peak_j_base = j_base_batch[:peak_run_count]
+            peak_t_norm = t_norm_batch[:peak_run_count]
+            peak_j_true_full = j_true_batch[:peak_run_count]
+            peak_t_phys = t_phys_batch[:peak_run_count]
+            peak_t_steps = int(peak_t_norm.shape[1])
+            # Expand for vectorized forward_j.
+            peak_x_exp = peak_x.unsqueeze(1).expand(-1, peak_t_steps, -1).reshape(-1, peak_x.shape[1])
+            peak_base_exp = peak_j_base.reshape(-1, 1)
+            peak_t_exp = peak_t_norm.reshape(-1, 1)
+            peak_j_pred_exp = model.forward_j(peak_x_exp, peak_t_exp, j_base=peak_base_exp, correction_scale_override=current_correction_scale)
+            peak_j_pred_curves = peak_j_pred_exp.reshape(peak_run_count, peak_t_steps)
+            # Soft-argmax with temperature for differentiable peak extraction.
+            peak_temperature = 50.0
+            peak_weights_pred = torch.softmax(peak_j_pred_curves * peak_temperature, dim=1)
+            peak_weights_true = torch.softmax(peak_j_true_full * peak_temperature, dim=1)
+            # Predicted peak value and time.
+            j_peak_pred = torch.sum(peak_j_pred_curves * peak_weights_pred, dim=1)
+            j_peak_true = torch.sum(peak_j_true_full * peak_weights_true, dim=1)
+            t_peak_pred = torch.sum(peak_t_phys * peak_weights_pred, dim=1)
+            t_peak_true = torch.sum(peak_t_phys * peak_weights_true, dim=1)
+            # Relative error on peak flux value.
+            j_peak_safe = torch.clamp(torch.abs(j_peak_true.detach()), min=1e-15)
+            loss_j_peak = torch.mean(((j_peak_pred - j_peak_true) / j_peak_safe) ** 2)
+            # Relative error on peak time.
+            t_peak_safe = torch.clamp(torch.abs(t_peak_true.detach()), min=1.0)
+            loss_t_peak = torch.mean(((t_peak_pred - t_peak_true) / t_peak_safe) ** 2)
+            loss_peak = loss_j_peak + loss_t_peak
+
         if is_phase2:
             # In phase-2 we fully enable flux and PDE terms.
             flux_scale = 1.0
@@ -645,6 +282,12 @@ def train_pinn(model, train_torch, val_torch, args):
                 ramp_epochs=int(args.pde_ramp_epochs),
             )
 
+        # Exponentially decay anchor weight so the PINN can freely deviate from
+        # the backbone later in training once physics losses are dominant.
+        # Reaches ~0.05 by epoch phase1_epochs/2 and ~0.002 by end.
+        anchor_half_life = float(max(1, phase1_epochs)) / 6.0
+        anchor_decay = float(math.exp(-0.693 * float(epoch_index) / anchor_half_life))
+
         weight_flux_consistency = float(args.weight_flux_consistency)
         weight_pde = float(args.weight_pde)
         weight_bc_top = float(args.weight_bc_top)
@@ -658,24 +301,43 @@ def train_pinn(model, train_torch, val_torch, args):
             weight_bc_bottom = weight_bc_bottom * float(args.phase2_weight_bc_bottom_mult)
             weight_ic = weight_ic * float(args.phase2_weight_ic_mult)
 
+        # Gate regularisation: gently encourage the gate to stay near 0.5
+        # (neither fully backbone nor fully PINN) at the start, then let it
+        # specialise as training progresses.  Only active with --use_learned_gate.
+        loss_gate_reg = torch.tensor(0.0, device=x_batch.device, dtype=torch.float32)
+        if model.use_learned_gate and float(args.weight_gate_entropy) > 0.0:
+            # Sample gate values for the current batch.
+            gate_vals = model.forward_gate(x_batch)
+            # Entropy-style regularisation: maximise entropy of gate distribution.
+            # H(gate) = -gate*log(gate) - (1-gate)*log(1-gate), maximised at 0.5.
+            gate_clamped = torch.clamp(gate_vals, min=1e-6, max=1.0 - 1e-6)
+            gate_entropy = -(gate_clamped * torch.log(gate_clamped) + (1.0 - gate_clamped) * torch.log(1.0 - gate_clamped))
+            # Negate entropy (we want to maximise it, so minimise -entropy).
+            # Decay this regularisation so the gate can specialise later.
+            gate_reg_decay = float(math.exp(-0.693 * float(epoch_index) / float(max(1, phase1_epochs) * 0.3)))
+            loss_gate_reg = -torch.mean(gate_entropy) * float(gate_reg_decay)
+
         total_loss = (
             (float(args.weight_c_data) * loss_c_data)
             + (float(args.weight_c_nonneg) * loss_c_nonneg)
             + (float(args.weight_inner_profile) * loss_inner_profile)
             + (float(args.weight_flux) * float(flux_scale) * loss_flux)
-            + (float(args.weight_anchor) * float(flux_scale) * loss_anchor)
+            + (float(args.weight_anchor) * float(flux_scale) * float(anchor_decay) * loss_anchor)
             + (float(weight_flux_consistency) * float(flux_scale) * loss_flux_consistency)
             + (float(weight_pde) * float(pde_scale) * loss_pde)
             + (float(weight_bc_top) * loss_bc_top)
             + (float(weight_bc_bottom) * loss_bc_bottom)
             + (float(weight_ic) * loss_ic)
             + (float(args.weight_nonneg) * loss_nonneg)
+            + (float(args.weight_peak) * float(flux_scale) * loss_peak)
+            + (float(args.weight_gate_entropy) * loss_gate_reg)
         )
 
         optimizer.zero_grad(set_to_none=True)
         total_loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
+        scheduler.step()
 
         if epoch_index == 1 or epoch_index == int(total_epochs) or epoch_index % int(args.eval_every) == 0:
             # Validation is based on curve rel-L2 because that is the final deployment target.
@@ -709,13 +371,26 @@ def train_pinn(model, train_torch, val_torch, args):
             if not is_phase2 and val_rel_l2 < best_phase1_val_rel_l2:
                 best_phase1_val_rel_l2 = val_rel_l2
 
+            # Compute gate mean for diagnostics (if gate is active).
+            gate_mean_val = 0.0
+            if model.use_learned_gate:
+                with torch.no_grad():
+                    gate_diag = model.forward_gate(x_batch)
+                    gate_mean_val = float(gate_diag.mean().item())
+
             row = {
                 "epoch": int(epoch_index),
                 "phase": "phase2_physics_tighten" if is_phase2 else "phase1_main",
                 "loss_total": float(total_loss.detach().cpu().item()),
+                "loss_flux": float(loss_flux.detach().cpu().item()),
+                "loss_pde": float(loss_pde.detach().cpu().item()),
+                "loss_anchor": float(loss_anchor.detach().cpu().item()),
+                "loss_peak": float(loss_peak.detach().cpu().item()) if isinstance(loss_peak, torch.Tensor) else 0.0,
+                "gate_mean": gate_mean_val,
                 "val_rel_l2": float(val_rel_l2),
             }
             history.append(row)
+            gate_str = f"  gate={gate_mean_val:.3f}" if model.use_learned_gate else ""
             print(
                 "epoch",
                 int(epoch_index),
@@ -723,8 +398,11 @@ def train_pinn(model, train_torch, val_torch, args):
                 f"{row['loss_total']:.6e}",
                 "val_rel_l2=",
                 f"{row['val_rel_l2']:.6e}",
-                "val_cstar_rmse=",
-                f"{float(val_cstar_rmse):.6e}",
+                f"flux={row['loss_flux']:.4e}",
+                f"pde={row['loss_pde']:.4e}",
+                f"anch={row['loss_anchor']:.4e}",
+                f"peak={row['loss_peak']:.4e}",
+                f"{gate_str}",
             )
 
             if is_phase2 and phase2_epochs > 0 and np.isfinite(best_phase1_val_rel_l2):
@@ -817,30 +495,33 @@ def main():
     parser.add_argument("--run_root_override", default=None)
     parser.add_argument("--run_start_index", type=int, default=None)
     parser.add_argument("--run_end_index", type=int, default=None)
-    parser.add_argument("--max_train_rows", type=int, default=256)
-    parser.add_argument("--max_val_rows", type=int, default=64)
-    parser.add_argument("--max_test_rows", type=int, default=64)
+    parser.add_argument("--max_train_rows", type=int, default=700)
+    parser.add_argument("--max_val_rows", type=int, default=150)
+    parser.add_argument("--max_test_rows", type=int, default=150)
 
     # Stage-0 curve backbone.
     parser.add_argument("--backbone_curve_components", type=int, default=20)
     parser.add_argument("--backbone_alphas", default="1e-4,1e-3,1e-2,1e-1,1,10")
+    parser.add_argument("--xgb_backbone", action="store_true")
 
     # Neural model and optimizer settings.
-    parser.add_argument("--epochs", type=int, default=30)
-    parser.add_argument("--phase2_epochs", type=int, default=0)
-    parser.add_argument("--eval_every", type=int, default=2)
+    parser.add_argument("--epochs", type=int, default=800)
+    parser.add_argument("--phase2_epochs", type=int, default=200)
+    parser.add_argument("--eval_every", type=int, default=5)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--batch_runs", type=int, default=24)
-    parser.add_argument("--predict_batch_runs", type=int, default=16)
+    parser.add_argument("--batch_runs", type=int, default=48)
+    parser.add_argument("--predict_batch_runs", type=int, default=48)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--depth", type=int, default=4)
     parser.add_argument("--fourier_frequencies", type=int, default=6)
+    parser.add_argument("--correction_scale", type=float, default=0.4)
+    parser.add_argument("--additive_correction", action="store_true")
 
     # Curriculum schedule.
-    parser.add_argument("--flux_warmup_epochs", type=int, default=6)
-    parser.add_argument("--flux_ramp_epochs", type=int, default=6)
+    parser.add_argument("--flux_warmup_epochs", type=int, default=3)
+    parser.add_argument("--flux_ramp_epochs", type=int, default=5)
     parser.add_argument("--pde_warmup_epochs", type=int, default=10)
-    parser.add_argument("--pde_ramp_epochs", type=int, default=10)
+    parser.add_argument("--pde_ramp_epochs", type=int, default=30)
 
     # Sampling counts for each loss component.
     parser.add_argument("--concentration_points", type=int, default=4096)
@@ -856,15 +537,20 @@ def main():
     parser.add_argument("--weight_c_nonneg", type=float, default=0.1)
     parser.add_argument("--weight_inner_profile", type=float, default=2.0)
     parser.add_argument("--weight_flux", type=float, default=2.0)
-    parser.add_argument("--weight_anchor", type=float, default=1.0)
-    parser.add_argument("--weight_flux_consistency", type=float, default=0.2)
-    parser.add_argument("--weight_pde", type=float, default=0.01)
+    parser.add_argument("--weight_anchor", type=float, default=0.1)
+    parser.add_argument("--weight_flux_consistency", type=float, default=0.5)
+    parser.add_argument("--weight_pde", type=float, default=0.5)
     parser.add_argument("--weight_bc_top", type=float, default=0.2)
     parser.add_argument("--weight_bc_bottom", type=float, default=0.2)
     parser.add_argument("--weight_ic", type=float, default=0.1)
     parser.add_argument("--weight_nonneg", type=float, default=0.05)
+    parser.add_argument("--weight_peak", type=float, default=1.0)
+    parser.add_argument("--weight_gate_entropy", type=float, default=0.1)
     parser.add_argument("--conc_log_scale", type=float, default=5000.0)
     parser.add_argument("--flux_log_scale", type=float, default=1e11)
+    parser.add_argument("--use_learned_gate", action="store_true")
+    parser.add_argument("--gate_init_bias", type=float, default=-2.0)
+    parser.add_argument("--initial_correction_scale", type=float, default=0.1)
 
     # Phase-2 physics tightening multipliers.
     parser.add_argument("--phase2_weight_flux_consistency_mult", type=float, default=2.0)
@@ -895,57 +581,28 @@ def main():
     split_name_map = load_split_name_map(ml_dir)
 
     # Build split row selections from the pre-generated ML dataset index.
-    train_entries = build_entries(
-        ml_dir=ml_dir,
-        split_name=split_name_map["train"],
-        run_start_index=args.run_start_index,
-        run_end_index=args.run_end_index,
-        max_rows=args.max_train_rows,
-        run_root_override=args.run_root_override,
-    )
-    val_entries = build_entries(
-        ml_dir=ml_dir,
-        split_name=split_name_map["val"],
-        run_start_index=args.run_start_index,
-        run_end_index=args.run_end_index,
-        max_rows=args.max_val_rows,
-        run_root_override=args.run_root_override,
-    )
-    test_entries = build_entries(
-        ml_dir=ml_dir,
-        split_name=split_name_map["test"],
-        run_start_index=args.run_start_index,
-        run_end_index=args.run_end_index,
-        max_rows=args.max_test_rows,
-        run_root_override=args.run_root_override,
-    )
+    max_rows_map = {"train": args.max_train_rows, "val": args.max_val_rows, "test": args.max_test_rows}
+    split_entries = {}
+    for split in ("train", "val", "test"):
+        split_entries[split] = build_entries(
+            ml_dir, split_name_map[split], args.run_start_index, args.run_end_index,
+            max_rows_map[split], args.run_root_override)
+    train_entries, val_entries, test_entries = split_entries["train"], split_entries["val"], split_entries["test"]
     feature_names, target_names = load_ml_meta_names(ml_dir)
 
     # Load tabular features, target curves, and curve time grids.
-    x_train_raw = load_split_matrix(ml_dir, split_name_map["train"], train_entries, key="X")
-    x_val_raw = load_split_matrix(ml_dir, split_name_map["val"], val_entries, key="X")
-    x_test_raw = load_split_matrix(ml_dir, split_name_map["test"], test_entries, key="X")
-    y_val_true = load_split_matrix(ml_dir, split_name_map["val"], val_entries, key="y_scalar")
-    y_test_true = load_split_matrix(ml_dir, split_name_map["test"], test_entries, key="y_scalar")
-    c0_val = extract_c0_feature(x_val_raw, feature_names)
-    c0_test = extract_c0_feature(x_test_raw, feature_names)
+    def load_mat(split, key): return load_split_matrix(ml_dir, split_name_map[split], split_entries[split], key)
+    x_train_raw, x_val_raw, x_test_raw = load_mat("train", "X"), load_mat("val", "X"), load_mat("test", "X")
+    y_val_true = load_mat("val", "y_scalar")
+    y_test_true = load_mat("test", "y_scalar")
+    c0_val, c0_test = extract_c0_feature(x_val_raw, feature_names), extract_c0_feature(x_test_raw, feature_names)
+    j_train_true, j_val_true, j_test_true = load_mat("train", "J"), load_mat("val", "J"), load_mat("test", "J")
+    t_val, t_test = load_mat("val", "t"), load_mat("test", "t")
 
-    j_train_true = load_split_matrix(ml_dir, split_name_map["train"], train_entries, key="J")
-    j_val_true = load_split_matrix(ml_dir, split_name_map["val"], val_entries, key="J")
-    j_test_true = load_split_matrix(ml_dir, split_name_map["test"], test_entries, key="J")
-    t_val = load_split_matrix(ml_dir, split_name_map["val"], val_entries, key="t")
-    t_test = load_split_matrix(ml_dir, split_name_map["test"], test_entries, key="t")
-
-    # Fit and predict the blackbox-style base curve model.
-    print("fitting blackbox-style backbone ...")
-    backbone = fit_curve_backbone(
-        x_train_raw=x_train_raw,
-        j_train_true=j_train_true,
-        x_val_raw=x_val_raw,
-        j_val_true=j_val_true,
-        curve_components=int(args.backbone_curve_components),
-        alpha_grid=backbone_alphas,
-    )
+    # Fit and predict the base curve model (Ridge or XGBoost backbone).
+    print("fitting backbone (xgb=" + str(bool(args.xgb_backbone)) + ") ...")
+    backbone = fit_curve_backbone(x_train_raw, j_train_true, x_val_raw, j_val_true,
+                                  int(args.backbone_curve_components), backbone_alphas, bool(args.xgb_backbone))
     j_train_base, x_train_scaled = predict_curve_backbone(backbone, x_train_raw)
     j_val_base, x_val_scaled = predict_curve_backbone(backbone, x_val_raw)
     j_test_base, x_test_scaled = predict_curve_backbone(backbone, x_test_raw)
@@ -959,33 +616,18 @@ def main():
     test_phys = load_run_physics_1d(test_entries)
 
     # Move all split packs onto the selected device once.
-    train_pack = tensorize_pack(
-        pack_for_training(x_train_scaled, j_train_true, j_train_base, train_phys),
-        device=device,
-    )
-    val_pack = tensorize_pack(
-        pack_for_training(x_val_scaled, j_val_true, j_val_base, val_phys),
-        device=device,
-    )
-    test_pack = tensorize_pack(
-        pack_for_training(x_test_scaled, j_test_true, j_test_base, test_phys),
-        device=device,
-    )
+    train_pack = tensorize_pack(pack_for_training(x_train_scaled, j_train_true, j_train_base, train_phys), device)
+    val_pack = tensorize_pack(pack_for_training(x_val_scaled, j_val_true, j_val_base, val_phys), device)
+    test_pack = tensorize_pack(pack_for_training(x_test_scaled, j_test_true, j_test_base, test_phys), device)
 
     model = RunConditionedPINN(
-        feature_dim=int(x_train_scaled.shape[1]),
-        hidden_dim=int(args.hidden_dim),
-        depth=int(args.depth),
-        fourier_frequencies=int(args.fourier_frequencies),
+        int(x_train_scaled.shape[1]), int(args.hidden_dim), int(args.depth),
+        int(args.fourier_frequencies), float(args.correction_scale),
+        bool(args.additive_correction), bool(args.use_learned_gate), float(args.gate_init_bias),
     ).to(device)
 
     # Train with checkpointing and optional phase-2 physics tightening.
-    train_result = train_pinn(
-        model=model,
-        train_torch=train_pack,
-        val_torch=val_pack,
-        args=args,
-    )
+    train_result = train_pinn(model, train_pack, val_pack, args)
     model = train_result["model"]
 
     # Build full validation/test curve predictions.
@@ -994,55 +636,24 @@ def main():
     j_test_pinn = predict_flux_curves(model, test_pack, batch_runs=int(args.predict_batch_runs))
 
     # Blend is selected on validation to prevent PINN from harming final deployment curves.
-    lambda_best, lambda_metric = pick_blend_lambda(
-        j_val_true=j_val_true,
-        t_val=t_val,
-        j_val_base=j_val_base,
-        j_val_pinn=j_val_pinn,
-    )
+    lambda_best, lambda_metric = pick_blend_lambda(j_val_true, t_val, j_val_base, j_val_pinn)
     j_val_final = j_val_base + (lambda_best * (j_val_pinn - j_val_base))
     j_test_final = j_test_base + (lambda_best * (j_test_pinn - j_test_base))
 
     # Save metrics bundles in train/val/test terminology only.
-    metrics_val = build_metrics_bundle(
-        j_val_true,
-        t_val,
-        j_val_base,
-        j_val_pinn,
-        j_val_final,
-        y_val_true,
-        c0_val,
-        target_names,
-    )
-    metrics_test = build_metrics_bundle(
-        j_test_true,
-        t_test,
-        j_test_base,
-        j_test_pinn,
-        j_test_final,
-        y_test_true,
-        c0_test,
-        target_names,
-    )
+    metrics_val = build_metrics_bundle(j_val_true, t_val, j_val_base, j_val_pinn, j_val_final,
+                                       y_val_true, c0_val, target_names)
+    metrics_test = build_metrics_bundle(j_test_true, t_test, j_test_base, j_test_pinn, j_test_final,
+                                        y_test_true, c0_test, target_names)
     (out_dir / "metrics_val.json").write_text(json.dumps(metrics_val, indent=2), encoding="utf-8")
     (out_dir / "metrics_test.json").write_text(json.dumps(metrics_test, indent=2), encoding="utf-8")
 
-    np.savez(
-        out_dir / "pred_val.npz",
-        j_true=j_val_true.astype(np.float32),
-        j_stageBase=j_val_base.astype(np.float32),
-        j_stagePINN=j_val_pinn.astype(np.float32),
-        j_stageFinal=j_val_final.astype(np.float32),
-        t=t_val.astype(np.float32),
-    )
-    np.savez(
-        out_dir / "pred_test.npz",
-        j_true=j_test_true.astype(np.float32),
-        j_stageBase=j_test_base.astype(np.float32),
-        j_stagePINN=j_test_pinn.astype(np.float32),
-        j_stageFinal=j_test_final.astype(np.float32),
-        t=t_test.astype(np.float32),
-    )
+    def save_preds(path, j_true, j_base, j_pinn, j_final, t):
+        np.savez(path, j_true=j_true.astype(np.float32), j_stageBase=j_base.astype(np.float32),
+                 j_stagePINN=j_pinn.astype(np.float32), j_stageFinal=j_final.astype(np.float32),
+                 t=t.astype(np.float32))
+    save_preds(out_dir / "pred_val.npz", j_val_true, j_val_base, j_val_pinn, j_val_final, t_val)
+    save_preds(out_dir / "pred_test.npz", j_test_true, j_test_base, j_test_pinn, j_test_final, t_test)
 
     out_diag = out_dir / "diagnostics"
     out_diag_physics = out_diag / "physics"
@@ -1050,101 +661,46 @@ def main():
     ensure_dir(out_diag_physics)
 
     # Physics diagnostics are computed from run bundles and predicted curves.
+    def pred_map(j_true, j_base, j_pinn, j_final):
+        return {"truth": j_true, "stageBase": j_base, "stagePINN": j_pinn, "stageFinal": j_final}
     print("computing physics diagnostics for val ...")
     physics_val_rows, physics_val_summary = compute_split_physics_diagnostics(
-        entries=val_entries,
-        split_name="val",
-        prediction_map={
-            "truth": j_val_true,
-            "stageBase": j_val_base,
-            "stagePINN": j_val_pinn,
-            "stageFinal": j_val_final,
-        },
-        progress_label="physics_val",
-        truth_key="truth",
-        pde_anchor_key="stageBase",
-    )
+        val_entries, "val", pred_map(j_val_true, j_val_base, j_val_pinn, j_val_final),
+        progress_label="physics_val", truth_key="truth", pde_anchor_key="stageBase")
     print("computing physics diagnostics for test ...")
     physics_test_rows, physics_test_summary = compute_split_physics_diagnostics(
-        entries=test_entries,
-        split_name="test",
-        prediction_map={
-            "truth": j_test_true,
-            "stageBase": j_test_base,
-            "stagePINN": j_test_pinn,
-            "stageFinal": j_test_final,
-        },
-        progress_label="physics_test",
-        truth_key="truth",
-        pde_anchor_key="stageBase",
-    )
+        test_entries, "test", pred_map(j_test_true, j_test_base, j_test_pinn, j_test_final),
+        progress_label="physics_test", truth_key="truth", pde_anchor_key="stageBase")
     write_rows_csv(out_diag_physics / "physics_diag_val.csv", physics_val_rows)
     write_rows_csv(out_diag_physics / "physics_diag_test.csv", physics_test_rows)
-    (out_diag_physics / "physics_diag_val_summary.json").write_text(
-        json.dumps(physics_val_summary, indent=2),
-        encoding="utf-8",
-    )
-    (out_diag_physics / "physics_diag_test_summary.json").write_text(
-        json.dumps(physics_test_summary, indent=2),
-        encoding="utf-8",
-    )
+    def write_json(path, obj): path.write_text(json.dumps(obj, indent=2), encoding="utf-8")
+    write_json(out_diag_physics / "physics_diag_val_summary.json", physics_val_summary)
+    write_json(out_diag_physics / "physics_diag_test_summary.json", physics_test_summary)
     # Keep explicit worst-case rows for manual inspection after each run.
-    worst_val = build_worst_case_report(
-        physics_val_rows,
-        split_name="val",
-        stage_name="stageFinal",
-        top_n=int(args.worst_case_top_n),
-    )
-    worst_test = build_worst_case_report(
-        physics_test_rows,
-        split_name="test",
-        stage_name="stageFinal",
-        top_n=int(args.worst_case_top_n),
-    )
-    (out_diag_physics / "physics_diag_val_worst.json").write_text(
-        json.dumps(worst_val, indent=2),
-        encoding="utf-8",
-    )
-    (out_diag_physics / "physics_diag_test_worst.json").write_text(
-        json.dumps(worst_test, indent=2),
-        encoding="utf-8",
-    )
+    worst_val = build_worst_case_report(physics_val_rows, "val", "stageFinal", int(args.worst_case_top_n))
+    worst_test = build_worst_case_report(physics_test_rows, "test", "stageFinal", int(args.worst_case_top_n))
+    write_json(out_diag_physics / "physics_diag_val_worst.json", worst_val)
+    write_json(out_diag_physics / "physics_diag_test_worst.json", worst_test)
 
     # Curve and scalar plots for quick visual comparison with blackbox.
     plot_dir = out_dir / "plots"
     plot_test_dir = plot_dir / "test"
     ensure_dir(plot_dir)
     ensure_dir(plot_test_dir)
-    plot_curve_examples(
-        t_test,
-        j_test_true,
-        j_test_final,
-        plot_test_dir / "curve_examples.png",
-        "J(t) examples (test)",
-        max_examples=9,
-    )
-    plot_curve_error_over_time(
-        t_test,
-        j_test_true,
-        j_test_final,
-        plot_test_dir / "curve_error_over_time.png",
-        "Curve error over time (test)",
-    )
+    plot_curve_examples(t_test, j_test_true, j_test_final,
+                        plot_test_dir / "curve_examples.png", "J(t) examples (test)", max_examples=9)
+    plot_curve_error_over_time(t_test, j_test_true, j_test_final,
+                               plot_test_dir / "curve_error_over_time.png", "Curve error over time (test)")
     y_test_stage_final = scalar_targets_from_flux_curves(j_test_final, t_test, c0_test, target_names)
-    plot_scalar_parity(
-        y_test_true,
-        y_test_stage_final,
-        target_names,
-        plot_test_dir / "scalar_parity.png",
-        "Scalar parity (test)",
-    )
-    plot_scalar_residual_hist(
-        y_test_true,
-        y_test_stage_final,
-        target_names,
-        plot_test_dir / "scalar_residuals.png",
-        "Scalar residuals (test)",
-    )
+    plot_scalar_parity(y_test_true, y_test_stage_final, target_names,
+                       plot_test_dir / "scalar_parity.png", "Scalar parity (test)")
+    plot_scalar_residual_hist(y_test_true, y_test_stage_final, target_names,
+                              plot_test_dir / "scalar_residuals.png", "Scalar residuals (test)")
+    plot_training_history(train_result["history"], plot_dir / "training_history.png",
+                          "Training loss & validation (seed=" + str(args.seed) + ")")
+    plot_per_run_error_distribution(j_test_true, j_test_final,
+                                    plot_test_dir / "per_run_error_distribution.png",
+                                    "Per-run error distribution (test, stageFinal)")
 
     # Write one summary artifact with config, metrics, diagnostics, and runtime.
     summary = {
@@ -1161,6 +717,9 @@ def main():
         "backbone": {
             "curve_components": int(args.backbone_curve_components),
             "alpha_grid": [float(value) for value in backbone_alphas],
+            "xgb_backbone": bool(args.xgb_backbone),
+            "selected_family": str(backbone.get("backbone_family", "ridge")),
+            "selected_hyperparams": backbone.get("backbone_hyperparams", {}),
             "selected_ridge_alpha": float(backbone["ridge_alpha"]),
             "val_rmse_for_selection": float(backbone["val_rmse"]),
         },
@@ -1168,6 +727,10 @@ def main():
             "hidden_dim": int(args.hidden_dim),
             "depth": int(args.depth),
             "fourier_frequencies": int(args.fourier_frequencies),
+            "correction_scale": float(args.correction_scale),
+            "initial_correction_scale": float(args.initial_correction_scale),
+            "additive_correction": bool(args.additive_correction),
+            "use_learned_gate": bool(args.use_learned_gate),
             "epochs": int(args.epochs),
             "phase2_epochs": int(args.phase2_epochs),
             "flux_warmup_epochs": int(args.flux_warmup_epochs),
@@ -1204,7 +767,10 @@ def main():
                 "bc_bottom": float(args.weight_bc_bottom),
                 "ic": float(args.weight_ic),
                 "nonneg": float(args.weight_nonneg),
+                "peak": float(args.weight_peak),
+                "gate_entropy": float(args.weight_gate_entropy),
             },
+            "gate_init_bias": float(args.gate_init_bias),
         },
         "best_val_rel_l2_stagePINN": float(train_result["best_val_rel_l2"]),
         "best_val_cstar_rmse_stagePINN": float(train_result["best_val_cstar_rmse"]),
