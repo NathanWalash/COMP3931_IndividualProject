@@ -1,15 +1,10 @@
-import json
 from pathlib import Path
 
 import numpy as np
 
+from scripts.ml.common import extract_c0_feature, load_json, resolve_split_key
 from skin_diffusion.ml_run_dataset import remap_run_dir
 from skin_diffusion.run_index import in_index_range, run_index_from_path
-
-
-def load_json(path):
-    text = Path(path).read_text(encoding="utf-8")
-    return json.loads(text)
 
 
 def load_target_names(ml_dir):
@@ -59,14 +54,6 @@ def load_npz(path):
     return result
 
 
-def resolve_split_key(split_index_map, logical_name):
-    # Use canonical split keys only.
-    split_text = str(logical_name)
-    if split_text in split_index_map:
-        return split_text
-    raise ValueError("Could not find split key " + split_text + ". Expected one of: train, val, test")
-
-
 def filter_split_by_run_index(split_data, split_index_entries, start_idx, end_idx):
     # Filter one split by run index range using index entries from ml/meta.json.
     if start_idx is None and end_idx is None:
@@ -103,9 +90,4 @@ def remap_entry_run_dirs(entries, run_root_override):
     return remapped
 
 
-def extract_c0_feature(x_raw, feature_names):
-    # C0 is needed for fair scalar comparison from predicted curves.
-    if "C0" not in feature_names:
-        return np.full((int(x_raw.shape[0]),), np.nan, dtype=np.float32)
-    c0_col = int(feature_names.index("C0"))
-    return np.asarray(x_raw[:, c0_col], dtype=np.float32)
+

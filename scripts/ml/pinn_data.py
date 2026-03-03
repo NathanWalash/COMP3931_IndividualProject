@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from scripts.ml.common import extract_c0_feature, resolve_split_key
 from skin_diffusion.ml_run_dataset import load_split_2d_array, load_split_entries, remap_run_dir
 
 
@@ -25,14 +26,6 @@ def build_entries(ml_dir, split_name, run_start_index=None, run_end_index=None, 
 def load_split_matrix(ml_dir, split_name, entries, key):
     # Read one array block (X/J/t/...) for the selected split rows.
     return load_split_2d_array(ml_dir=ml_dir, split_name=split_name, entries=entries, key=key).astype(np.float32)
-
-
-def resolve_split_key(split_map, logical_name):
-    # Use canonical split keys only.
-    split_text = str(logical_name)
-    if split_text in split_map:
-        return split_text
-    raise ValueError("Could not find split key " + split_text + ". Expected one of: train, val, test")
 
 
 def load_split_name_map(ml_dir):
@@ -79,14 +72,6 @@ def load_ml_meta_names(ml_dir):
         scalar_out.append(str(scalar_target_names[scalar_index]))
         scalar_index += 1
     return feature_out, scalar_out
-
-
-def extract_c0_feature(x_raw, feature_names):
-    # C0 is needed to derive permeability-style scalar diagnostics from J(t).
-    if "C0" not in feature_names:
-        return np.full((int(x_raw.shape[0]),), np.nan, dtype=np.float32)
-    c0_column = int(feature_names.index("C0"))
-    return np.asarray(x_raw[:, c0_column], dtype=np.float32)
 
 
 def load_run_physics_1d(entries):

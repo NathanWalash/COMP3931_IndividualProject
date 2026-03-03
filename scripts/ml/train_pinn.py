@@ -7,7 +7,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from scripts.ml.pinn_data import build_entries, extract_c0_feature, load_ml_meta_names, load_run_physics_1d, load_split_matrix, load_split_name_map, pack_for_training, tensorize_pack
+from scripts.ml.common import extract_c0_feature
+from scripts.ml.pinn_data import build_entries, load_ml_meta_names, load_run_physics_1d, load_split_matrix, load_split_name_map, pack_for_training, tensorize_pack
 from scripts.ml.pinn_model import RunConditionedPINN, curriculum_scale, evaluate_cstar_rmse, predict_flux_curves, sample_depth_ids, sample_time_ids
 from skin_diffusion.ml_curve_plots import plot_curve_error_over_time, plot_curve_examples, plot_per_run_error_distribution, plot_training_history
 from skin_diffusion.ml_curve_backbone import fit_curve_backbone, parse_float_csv, predict_curve_backbone
