@@ -14,7 +14,7 @@ boundary:
   mode: infinite_dose
   C0: 1.0
   decay_rate: 0.0
-  patch_width: 0.5
+  patch_width: 1.0
   patch_offset: center
   bottom: sink
   sides: neumann

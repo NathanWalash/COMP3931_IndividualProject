@@ -53,9 +53,12 @@ def main():
     # load config
     cfg = load_config(args.config)
 
-    # force full-width patch for 1D behavior
-    cfg.boundary.patch_width = 1.0
-    cfg.boundary.patch_offset = "center"
+    # 1D analytic benchmark assumes full-width top Dirichlet exposure.
+    if abs(float(cfg.boundary.patch_width) - 1.0) > 1e-12:
+        raise ValueError(
+            "benchmark_v1_1d requires boundary.patch_width == 1.0 "
+            f"(got {cfg.boundary.patch_width})."
+        )
 
     # make patch mask
     patch_mask = make_patch_mask(
