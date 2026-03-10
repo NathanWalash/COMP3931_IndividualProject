@@ -7,6 +7,7 @@ A small 2D finite-difference skin diffusion simulator with config-driven regimes
 - Simulates diffusion through skin with a top donor patch and bottom sink.
 - Supports constant D (V1), layered D(y) with optional clearance k(y) (V2), and 2D patch geometry + heterogeneity + time-decay donor (V3).
 - Produces figures, metrics (flux, permeability, lag time), and run bundles for ML datasets.
+- Compares black-box surrogates against a physics-corrected hybrid PINN workflow.
 
 ## Quickstart
 
@@ -151,11 +152,12 @@ Subset evaluation/training by run index (inclusive):
   - `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --run_start_index 0 --run_end_index 499`
   - optional staged local run bundles:
     `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --run_root_override /tmp/staged_local_dataset/v3_literature_dataset_clearance_v1/dataset`
-- Train (PINN, report-primary):
+- Train (hybrid PINN, report-primary):
   - `python -m scripts.ml.train_pinn --ml_dir data/processed/ml --out_dir outputs/ml/pinn --device cuda --run_start_index 0 --run_end_index 499`
   - optional staged local run bundles:
     `python -m scripts.ml.train_pinn --ml_dir data/processed/ml --out_dir outputs/ml/pinn --device cuda --run_root_override /tmp/staged_local_dataset/v3_literature_dataset_clearance_v1/dataset`
-  - blackbox/PINN write aligned prediction + physics diagnostics
+  - current `train_pinn.py` is a hybrid path (blackbox backbone + physics-corrective PINN stage)
+  - blackbox/hybrid PINN write aligned prediction + physics diagnostics
     files (`pred_val.npz`, `pred_test.npz`,
     `diagnostics/physics/physics_diag_*`) for val/test comparison.
   - scalar comparison is standardized via scalar targets derived from predicted
@@ -166,7 +168,12 @@ Subset evaluation/training by run index (inclusive):
 - `python -m scripts.sim.profile_solver`
   - `outputs/sim/profile/runtime.csv`
 
-### 7) Clean generated folders
+### 7) Surrogate vs simulator timing
+
+- `python -m scripts.sim.time_comparison --config configs/sim/v3_layers_literature_clearance.yaml --ml_dir data/processed/ml --pinn_model outputs/ml/pinn/pinn_model.pt --device cuda --out_dir results/timing`
+  - `results/timing/time_comparison.json` with simulator timing, blackbox timing, hybrid PINN timing, and derived speedups
+
+### 8) Clean generated folders
 
 - `python -m scripts.sim.clean_outputs --figures`
 - `python -m scripts.sim.clean_outputs --outputs`
@@ -175,7 +182,7 @@ Subset evaluation/training by run index (inclusive):
 Optional subdir:
 - `python -m scripts.sim.clean_outputs --outputs --subdir sim\v3\dataset`
 
-### 8) Tests
+### 9) Tests
 
 - `pip install -r requirements.txt`
 - `python -m pytest -q`
@@ -186,16 +193,19 @@ Optional subdir:
 The `notebooks/` folder provides runnable, narrative walkthroughs:
 
 - `01_quickstart_simulation.ipynb`: baseline run and inspection
-- `02_validation_v1_v2_v3.ipynb`: visual validation for V1/V2/V3
+- `02_model_regimes_v1_v2_v3.ipynb`: visual validation for V1/V2/V3
 - `03_convergence_and_1d_benchmark.ipynb`: grid refinement + analytic check
-- `04_literature_compare_lidocaine.ipynb`: compare to literature targets
-- `05_dataset_pipeline.ipynb`: build a small dataset and inspect splits
+- `04_literature_calibration_lidocaine.ipynb`: compare to literature targets
+- `05_dataset_design_and_qc.ipynb`: build and QC dataset splits
+- `06_surrogate_comparison.ipynb`: compare blackbox vs hybrid PINN surrogate stages
+- `07_physics_diagnostics_and_robustness.ipynb`: physics diagnostics and robustness checks
 
 ## Configs
 
 Main simulation configs:
 - `configs/sim/v1_baseline.yaml`
 - `configs/sim/v2_layers_clearance.yaml`
+- `configs/sim/v2_layers_literature.yaml`
 - `configs/sim/v3_hetero_patch_timeDecay.yaml`
 - `configs/sim/v2_lidocaine_compare.yaml` (literature compare)
 - `configs/sim/v3_layers_literature.yaml`
@@ -233,3 +243,4 @@ sampled from this discrete set to keep the input space simple and consistent.
 - `docs/outputs_guide.md`: outputs and where they are written
 - `docs/config_guide.md`: config fields and options
 - `docs/tests_overview.md`: unit test summary
+- `docs/literature_layers_reference.md`: literature anchors and layer assumptions

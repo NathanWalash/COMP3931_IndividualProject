@@ -49,12 +49,14 @@ Run folder: `outputs/ml/<run_name>/`
   - `plots/test/scalar_parity.png`
   - `plots/test/scalar_residuals.png`
 
-## PINN outputs (`train_pinn.py`)
+## Hybrid PINN outputs (`train_pinn.py`)
 
 Run folder: `outputs/ml/<run_name>/`
 
+- Model structure: blackbox backbone plus physics-corrective PINN stage.
 - Metrics: `metrics_val.json`, `metrics_test.json`
 - Predictions: `pred_val.npz`, `pred_test.npz`
+  - includes `j_stageBase`, `j_stagePINN`, and `j_stageFinal`
 - History/summary: `history.json`, `summary.json`
 - Physics diagnostics:
   - `diagnostics/physics/physics_diag_val.csv`
@@ -68,3 +70,17 @@ Run folder: `outputs/ml/<run_name>/`
   - `plots/test/curve_error_over_time.png`
   - `plots/test/scalar_parity.png`
   - `plots/test/scalar_residuals.png`
+
+## Timing comparison outputs (`time_comparison.py`)
+
+Run command:
+- `python -m scripts.sim.time_comparison --config <sim_config> --ml_dir <ml_dir> --pinn_model <pinn_model.pt> --device <cpu|cuda> --out_dir <out_dir>`
+
+Default output:
+- `results/timing/time_comparison.json`
+
+Key fields:
+- `simulator`: repeated full PDE runtime per run (`mean_seconds`, `std_seconds`, grid, step count)
+- `blackbox_ridge`: surrogate train and inference timing on test split
+- `pinn`: end-to-end hybrid PINN stageFinal inference timing on test split
+- `speedup_blackbox_vs_sim_per_sample`, `speedup_pinn_vs_sim_per_sample`: derived speedups

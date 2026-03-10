@@ -78,6 +78,14 @@ What it checks:
 - `load_split_feature_matrix` aligns feature rows with split entries.
 - `load_run_bundle` loads run fields/meta with expected schema.
 
+## tests/test_ml_scalar_diagnostics.py
+
+Purpose:
+- Validate scalar diagnostics used in surrogate comparison reports.
+
+What it checks:
+- finite and stable scalar metrics/report aggregation, including edge cases.
+
 ## Current test gaps
 
 - No full pipeline end-to-end integration test (generate -> assemble -> export -> train -> evaluate).
