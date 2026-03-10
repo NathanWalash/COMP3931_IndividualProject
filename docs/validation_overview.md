@@ -82,11 +82,14 @@ Method:
 - Compare simulated `P` and `Tlag` to paper targets.
 
 What it proves:
-- Model can match reported permeation parameters within ~10–20%.
+- The calibration setup can be benchmarked directly against literature
+  permeability and lag-time targets; exact deltas depend on the selected
+  parameterization and should be reported from the run output.
 
 Evidence:
 - compare script output
 - calibration notes in YAML
+- `notebooks/04_literature_calibration_lidocaine.ipynb`
 
 ## 7) Unit tests
 
