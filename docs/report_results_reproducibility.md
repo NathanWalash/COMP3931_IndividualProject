@@ -119,16 +119,12 @@ Report-reference test metrics (`stageFinal`):
 | Run ID | relative_l2 | pearson_r |
 |---|---:|---:|
 | blackbox_ridge | 0.0788934931 | 0.9967120791 |
-| corrective_ridge_seed42 | 0.0487797596 | 0.9991678188 |
-| corrective_ridge_seed7 | 0.0506992266 | 0.9990412214 |
-| corrective_ridge_seed123 | 0.0500499271 | 0.9991374296 |
+| corrective_ridge_seed42 | 0.0502966158 | 0.9990987061 |
+| corrective_ridge_seed7 | 0.0505483113 | 0.9990586111 |
+| corrective_ridge_seed123 | 0.0507015400 | 0.9990779587 |
 
-Current-code verification (April 16, 2026):
-
-- `seed 42` rerun with trimmed code path produced:
-  - `relative_l2 = 0.0487319566`
-  - `pearson_r = 0.9991747864`
-- This is within normal numerical drift vs report seed42 (`~0.098%` relative_l2 difference).
+Current-code verification (April 17, 2026): values above were read from
+`outputs/ml/final_comparison/*/metrics_test.json` (`stageFinal.curve`).
 
 ## 5) Output-Only Sanity Check
 
@@ -147,9 +143,9 @@ runs = [
 ]
 root = Path("outputs/ml/final_comparison")
 for run in runs:
-    s = json.loads((root / run / "summary.json").read_text())
-    rel = s.get("test_relative_l2")
-    p = s.get("test_pearson_r")
+    m = json.loads((root / run / "metrics_test.json").read_text())
+    rel = m["stageFinal"]["curve"]["relative_l2"]
+    p = m["stageFinal"]["curve"]["pearson_r"]
     print(f"{run}: relative_l2={rel:.10f}, pearson_r={p:.10f}")
 PY
 ```

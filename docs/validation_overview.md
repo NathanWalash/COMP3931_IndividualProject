@@ -19,16 +19,16 @@ Evidence:
 ## 2) V2 layered diffusion validation
 
 Script: `scripts/sim/validate_v2.py`  
-Config: `configs/sim/v2_layers_clearance.yaml`
+Config: `configs/sim/v2_lidocaine_compare.yaml`
 
 Purpose:
-- Check layered D (SC / VE / dermis).
+- Check layered D (SC / VE / dermis) with the literature-calibrated V2 setup.
 - Show slower transport through SC.
-- Show dermal clearance impact when k is enabled.
+- Keep V2 validation aligned with the report's calibrated lidocaine case.
 
 Evidence:
 - `figures/validation/v2/*` (D map, k map, heatmaps, profiles)
-- `outputs/sim/v2/metrics.json`
+- `outputs/sim/v2_lit/metrics.json`
 
 ## 3) V3 2D patch + heterogeneity validation
 

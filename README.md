@@ -50,7 +50,7 @@ Notebook kernel (VS Code/Jupyter):
 
 Examples:
 - `python -m scripts.sim.run_sim --config configs/sim/v1_baseline.yaml`
-- `python -m scripts.sim.run_sim --config configs/sim/v2_layers_clearance.yaml`
+- `python -m scripts.sim.run_sim --config configs/sim/v2_lidocaine_compare.yaml`
 - `python -m scripts.sim.run_sim --config configs/sim/v3_hetero_patch_timeDecay.yaml`
 
 Options:
@@ -68,7 +68,7 @@ Outputs (per run):
 ### 2) Validation figures
 
 - V1: `python -m scripts.sim.validate_v1 --config configs/sim/v1_baseline.yaml`
-- V2: `python -m scripts.sim.validate_v2 --config configs/sim/v2_layers_clearance.yaml`
+- V2: `python -m scripts.sim.validate_v2 --config configs/sim/v2_lidocaine_compare.yaml`
 - V3: `python -m scripts.sim.validate_v3 --config configs/sim/v3_hetero_patch_timeDecay.yaml`
 
 Outputs:
@@ -170,11 +170,11 @@ Subset evaluation/training by run index (inclusive):
 
 ### 7) Surrogate vs simulator timing
 
-- `python -m scripts.sim.time_comparison --config configs/sim/v3_layers_literature_clearance.yaml --ml_dir data/processed/ml --corrective_model outputs/ml/corrective_surrogate/corrective_model.pt --device cpu --out_dir outputs/timing`
-  - `outputs/timing/time_comparison.json` with simulator timing plus inference-only apples-to-apples blackbox vs physics-corrected surrogate timing and derived speedups
+- `python -m scripts.sim.time_comparison --config configs/sim/v3_layers_literature_clearance.yaml --ml_dir data/processed/ml --corrective_model outputs/ml/final_comparison/corrective_ridge_seed42/corrective_model.pt --device cpu --out_dir outputs/timing/final_recheck_cuda`
+  - `outputs/timing/final_recheck_cuda/time_comparison.json` with simulator timing plus inference-only apples-to-apples blackbox vs physics-corrected surrogate timing and derived speedups
   - timing script accepts only checkpoints that match the current `train_corrective` architecture
   - optional best-hardware timing (deployment view) for corrective:
-    - `python -m scripts.sim.time_comparison --config configs/sim/v3_layers_literature_clearance.yaml --ml_dir data/processed/ml --corrective_model outputs/ml/corrective_surrogate/corrective_model.pt --device cpu --best_hardware_device cuda --out_dir outputs/timing`
+    - `python -m scripts.sim.time_comparison --config configs/sim/v3_layers_literature_clearance.yaml --ml_dir data/processed/ml --corrective_model outputs/ml/final_comparison/corrective_ridge_seed42/corrective_model.pt --device cpu --best_hardware_device cuda --out_dir outputs/timing/final_recheck_cuda`
     - if requested device is unavailable in your PyTorch build, apples-to-apples CPU timing still runs and best-hardware timing is skipped with a note in the JSON
 
 ### 8) Clean generated folders
@@ -208,8 +208,6 @@ The `notebooks/` folder provides runnable, narrative walkthroughs:
 
 Main simulation configs:
 - `configs/sim/v1_baseline.yaml`
-- `configs/sim/v2_layers_clearance.yaml`
-- `configs/sim/v2_layers_literature.yaml`
 - `configs/sim/v3_hetero_patch_timeDecay.yaml`
 - `configs/sim/v2_lidocaine_compare.yaml` (literature compare)
 - `configs/sim/v3_layers_literature.yaml`
