@@ -247,21 +247,38 @@ def main():
         best_device_skip_reason = "--best_hardware_device requested CUDA but torch.cuda.is_available() is False; skipping best-hardware timing"
         best_device_text = None
 
+    corrective_model_path = None
+    if args.corrective_model:
+        corrective_model_path = Path(args.corrective_model)
+        if not corrective_model_path.exists():
+            raise FileNotFoundError(f"--corrective_model not found: {corrective_model_path}")
+
     out_dir = Path(args.out_dir)
     ensure_dir(out_dir)
     results = {}
 
-    # 1. Simulator timing.
+    # 1. Shared surrogate setup + corrective preflight.
+    train_data, test_data = load_ml_splits(args.ml_dir)
+    x_test = np.asarray(test_data["X"], dtype=np.float32)
+    t_test = np.asarray(test_data["t"], dtype=np.float32)
+    model_cpu = None
+    flux_head_mode = None
+    if corrective_model_path is not None:
+        print("Preflight: validating corrective checkpoint compatibility")
+        model_cpu, flux_head_mode = load_corrective_model(
+            model_path=str(corrective_model_path),
+            feature_dim=x_test.shape[1],
+            torch_device=torch.device("cpu"),
+        )
+
+    # 2. Simulator timing.
     print("Timing: single PDE simulation")
     sim_timing = time_single_simulation(args.config, n_repeats=int(args.sim_repeats))
     results["simulator"] = sim_timing
     print(f"Mean: {sim_timing['mean_seconds']:.3f}s (+/- {sim_timing['std_seconds']:.3f}s) over {sim_timing['n_repeats']} repeats")
     print(f"Grid: {sim_timing['grid']}, steps: {sim_timing['n_steps']}")
 
-    # 2. Shared surrogate setup.
-    train_data, test_data = load_ml_splits(args.ml_dir)
-    x_test = np.asarray(test_data["X"], dtype=np.float32)
-    t_test = np.asarray(test_data["t"], dtype=np.float32)
+    # 3. Shared backbone fit.
     backbone, backbone_fit_seconds = fit_shared_backbone(train_data, test_data)
     results["surrogate_setup"] = {
         "comparison_scope": "inference_only_apples_to_apples",
@@ -274,7 +291,7 @@ def main():
         "best_hardware_skip_reason": best_device_skip_reason,
     }
 
-    # 3. Blackbox inference timing.
+    # 4. Blackbox inference timing.
     print("\nTiming: blackbox (Ridge PCA, inference only)")
     bb_timing = time_blackbox_inference(
         backbone=backbone,
@@ -286,15 +303,10 @@ def main():
     print(f"Inference ({bb_timing['n_test']} samples): {bb_timing['inference_mean_seconds']*1000:.2f}ms (+/- {bb_timing['inference_std_seconds']*1000:.2f}ms)")
     print(f"Per sample: {bb_timing['inference_per_sample_ms']:.3f}ms")
 
-    # 4. Corrective inference timing (strict current checkpoint contract).
-    if args.corrective_model and Path(args.corrective_model).exists():
+    # 5. Corrective inference timing (strict current checkpoint contract).
+    if corrective_model_path is not None:
         print("\nTiming: physics-corrected surrogate inference (inference only, apples-to-apples CPU)")
         torch_device_cpu = torch.device("cpu")
-        model_cpu, flux_head_mode = load_corrective_model(
-            model_path=args.corrective_model,
-            feature_dim=x_test.shape[1],
-            torch_device=torch_device_cpu,
-        )
         corrective_timing = time_corrective_inference(
             backbone=backbone,
             x_test=x_test,
@@ -313,7 +325,7 @@ def main():
             print(f"\nTiming: physics-corrected surrogate inference (best hardware: {best_device_text})")
             torch_device_best = torch.device(best_device_text)
             model_best, flux_head_mode_best = load_corrective_model(
-                model_path=args.corrective_model,
+                model_path=str(corrective_model_path),
                 feature_dim=x_test.shape[1],
                 torch_device=torch_device_best,
             )
@@ -337,7 +349,7 @@ def main():
     else:
         print("\nPhysics-corrected surrogate timing skipped (no --corrective_model provided)")
 
-    # 5. Derived speedups and surrogate-to-surrogate ratio.
+    # 6. Derived speedups and surrogate-to-surrogate ratio.
     if "simulator" in results and "blackbox_ridge" in results:
         sim_seconds_per_run = float(results["simulator"]["mean_seconds"])
         bb_seconds_per_sample = float(results["blackbox_ridge"]["inference_per_sample_ms"]) / 1000.0
