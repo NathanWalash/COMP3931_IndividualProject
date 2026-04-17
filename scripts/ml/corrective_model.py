@@ -1,38 +1,14 @@
-import math
-
 import numpy as np
 import torch
 
 
 class RunConditionedCorrectiveSurrogate(torch.nn.Module):
-    def __init__(self, feature_dim, hidden_dim=128, depth=4, fourier_frequencies=6, correction_scale=0.4, use_learned_gate=False, gate_init_bias=-2.0):
+    def __init__(self, feature_dim, hidden_dim=128, depth=4, correction_scale=0.4, use_learned_gate=False, gate_init_bias=-2.0):
         super().__init__()
         # correction_scale controls additive correction magnitude.
         # j_base + scale * tanh(raw) * |j_base| gives a bounded fractional delta.
         self.correction_scale = float(correction_scale)
         self.use_learned_gate = bool(use_learned_gate)
-        # Concentration head takes run features + (y,t) coordinates.
-        self.fourier_frequencies = int(max(0, fourier_frequencies))
-        if self.fourier_frequencies > 0:
-            freq_tensor = torch.arange(self.fourier_frequencies, dtype=torch.float32)
-            self.register_buffer("freq_values", torch.pow(2.0, freq_tensor))
-
-        layers = []
-        extra_dim = 0
-        if self.fourier_frequencies > 0:
-            # sin/cos for y and t.
-            extra_dim = 4 * self.fourier_frequencies
-        in_dim = int(feature_dim) + 2 + int(extra_dim)
-        layer_index = 0
-        while layer_index < int(depth):
-            layers.append(torch.nn.Linear(in_dim, int(hidden_dim)))
-            layers.append(torch.nn.Tanh())
-            in_dim = int(hidden_dim)
-            layer_index += 1
-        self.c_hidden = torch.nn.Sequential(*layers)
-        self.c_head = torch.nn.Linear(in_dim, 1)
-        torch.nn.init.zeros_(self.c_head.weight)
-        torch.nn.init.zeros_(self.c_head.bias)
 
         # Flux head predicts a smooth correction over a time basis.
         flux_basis_count = 48
@@ -73,24 +49,6 @@ class RunConditionedCorrectiveSurrogate(torch.nn.Module):
             torch.nn.init.zeros_(self.gate_head.weight)
             torch.nn.init.constant_(self.gate_head.bias, float(gate_init_bias))
 
-    def forward_c(self, x_feat, y_star, t_star):
-        feature_parts = [x_feat, y_star, t_star]
-        if self.fourier_frequencies > 0:
-            freq = self.freq_values.to(dtype=x_feat.dtype, device=x_feat.device).reshape(1, -1)
-            y_phase = (2.0 * math.pi) * (y_star * freq)
-            t_phase = (2.0 * math.pi) * (t_star * freq)
-            feature_parts.extend(
-                [
-                    torch.sin(y_phase),
-                    torch.cos(y_phase),
-                    torch.sin(t_phase),
-                    torch.cos(t_phase),
-                ]
-            )
-        inp = torch.cat(feature_parts, dim=1)
-        # Output is dimensionless concentration c*=C/C0; nonnegativity is handled by loss terms.
-        return self.c_head(self.c_hidden(inp))
-
     def forward_gate(self, x_feat):
         # Predict per-sample gate lambda in [0, 1].
         # lambda=0 means pure backbone, lambda=1 means full corrective branch.
@@ -127,8 +85,8 @@ class RunConditionedCorrectiveSurrogate(torch.nn.Module):
             j_corrected = torch.clamp(j_corrected, min=0.0)
         return j_corrected
 
-    def forward(self, x_feat, y_star, t_star):
-        return self.forward_c(x_feat, y_star, t_star)
+    def forward(self, *args, **kwargs):
+        raise RuntimeError("RunConditionedCorrectiveSurrogate uses forward_j for flux correction.")
 
 
 def curriculum_scale(epoch_index, warmup_epochs, ramp_epochs):

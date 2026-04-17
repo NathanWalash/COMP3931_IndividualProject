@@ -241,7 +241,6 @@ def train_corrective(model, train_torch, val_torch, args):
         "model": model,
         "history": history,
         "best_val_rel_l2": float(best_val_rel_l2),
-        "best_phase1_val_rel_l2": float(best_val_rel_l2),
         "phase1_epochs": int(phase1_epochs),
         "final_epoch_ran": int(final_epoch_ran),
     }
@@ -314,7 +313,6 @@ def main():
     parser.add_argument("--predict_batch_runs", type=int, default=48)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--depth", type=int, default=4)
-    parser.add_argument("--fourier_frequencies", type=int, default=6)
     parser.add_argument("--correction_scale", type=float, default=0.4)
 
     # Curriculum schedule.
@@ -398,7 +396,7 @@ def main():
 
     model = RunConditionedCorrectiveSurrogate(
         int(x_train_scaled.shape[1]), int(args.hidden_dim), int(args.depth),
-        int(args.fourier_frequencies), float(args.correction_scale),
+        float(args.correction_scale),
         bool(args.use_learned_gate), float(args.gate_init_bias),
     ).to(device)
 
@@ -502,7 +500,6 @@ def main():
         "corrective_config": {
             "hidden_dim": int(args.hidden_dim),
             "depth": int(args.depth),
-            "fourier_frequencies": int(args.fourier_frequencies),
             "correction_scale": float(args.correction_scale),
             "initial_correction_scale": float(args.initial_correction_scale),
             "additive_correction": True,
@@ -524,7 +521,6 @@ def main():
             "gate_init_bias": float(args.gate_init_bias),
         },
         "best_val_rel_l2_stageCorrected": float(train_result["best_val_rel_l2"]),
-        "best_phase1_val_rel_l2_stageCorrected": float(train_result["best_phase1_val_rel_l2"]),
         "train_status": {
             "phase1_epochs": int(train_result["phase1_epochs"]),
             "final_epoch_ran": int(train_result["final_epoch_ran"]),

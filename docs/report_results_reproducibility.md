@@ -89,7 +89,6 @@ python -m scripts.ml.train_corrective \
   --predict_batch_runs 48 \
   --hidden_dim 128 \
   --depth 4 \
-  --fourier_frequencies 6 \
   --correction_scale 0.5 \
   --initial_correction_scale 0.3 \
   --use_learned_gate \
