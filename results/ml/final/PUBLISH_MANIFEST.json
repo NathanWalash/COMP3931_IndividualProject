@@ -1,0 +1,18 @@
+{
+  "bundle": "results/ml/final",
+  "timing_bundle": "results/ml/final/timing",
+  "runs": [
+    "blackbox_ridge",
+    "corrective_ridge_seed42",
+    "corrective_ridge_seed7",
+    "corrective_ridge_seed123"
+  ],
+  "timing_files": [
+    "time_comparison_seed42.json",
+    "time_comparison_dual_mode.json"
+  ],
+  "notes": [
+    "Curated publish bundle copied from outputs final consolidated runs.",
+    "Contains report-relevant test artifacts, summaries, diagnostics, and timing JSONs."
+  ]
+}

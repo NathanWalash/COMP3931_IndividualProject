@@ -1,0 +1,18 @@
+{
+  "source": "outputs/ml/final_comparison/corrective_ridge_seed7_final_consolidated",
+  "copied_files": [
+    "metrics_test.json",
+    "summary.json",
+    "pred_test.npz",
+    "diagnostics/physics/physics_diag_test_summary.json",
+    "diagnostics/physics/physics_diag_test_worst.json",
+    "plots/test/curve_examples.png",
+    "plots/test/curve_error_over_time.png",
+    "plots/test/scalar_parity.png",
+    "plots/test/scalar_residuals.png",
+    "history.json",
+    "corrective_model.pt",
+    "plots/test/per_run_error_distribution.png",
+    "plots/training_history.png"
+  ]
+}
