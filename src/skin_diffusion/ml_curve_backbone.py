@@ -73,8 +73,8 @@ def fit_curve_backbone(
     alpha_grid=None,
     use_xgboost=False,
 ):
-    # Fit PCA + regressor curve backbone.  When use_xgboost is True the candidate pool 
-    # includes XGBoost multi-output regressors alongside Ridge giving PINN a stronger starting point
+    # Fit PCA + regressor curve backbone.  When use_xgboost is True the candidate pool
+    # includes XGBoost multi-output regressors alongside Ridge for a stronger corrective baseline.
     if alpha_grid is None:
         alpha_grid = [1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0]
 

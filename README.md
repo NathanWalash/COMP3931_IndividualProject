@@ -7,7 +7,7 @@ A small 2D finite-difference skin diffusion simulator with config-driven regimes
 - Simulates diffusion through skin with a top donor patch and bottom sink.
 - Supports constant D (V1), layered D(y) with optional clearance k(y) (V2), and 2D patch geometry + heterogeneity + time-decay donor (V3).
 - Produces figures, metrics (flux, permeability, lag time), and run bundles for ML datasets.
-- Compares black-box surrogates against a physics-corrected hybrid PINN workflow.
+- Compares black-box surrogates against a physics-corrected surrogate workflow.
 
 ## Quickstart
 
@@ -50,7 +50,7 @@ Notebook kernel (VS Code/Jupyter):
 
 Examples:
 - `python -m scripts.sim.run_sim --config configs/sim/v1_baseline.yaml`
-- `python -m scripts.sim.run_sim --config configs/sim/v2_layers_clearance.yaml`
+- `python -m scripts.sim.run_sim --config configs/sim/v2_lidocaine_compare.yaml`
 - `python -m scripts.sim.run_sim --config configs/sim/v3_hetero_patch_timeDecay.yaml`
 
 Options:
@@ -68,7 +68,7 @@ Outputs (per run):
 ### 2) Validation figures
 
 - V1: `python -m scripts.sim.validate_v1 --config configs/sim/v1_baseline.yaml`
-- V2: `python -m scripts.sim.validate_v2 --config configs/sim/v2_layers_clearance.yaml`
+- V2: `python -m scripts.sim.validate_v2 --config configs/sim/v2_lidocaine_compare.yaml`
 - V3: `python -m scripts.sim.validate_v3 --config configs/sim/v3_hetero_patch_timeDecay.yaml`
 
 Outputs:
@@ -152,12 +152,12 @@ Subset evaluation/training by run index (inclusive):
   - `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --run_start_index 0 --run_end_index 499`
   - optional staged local run bundles:
     `python -m scripts.ml.train_blackbox --ml_dir data/processed/ml --out_dir outputs/ml/blackbox --run_root_override /tmp/staged_local_dataset/v3_literature_dataset_clearance_v1/dataset`
-- Train (hybrid PINN, report-primary):
-  - `python -m scripts.ml.train_pinn --ml_dir data/processed/ml --out_dir outputs/ml/pinn --device cuda --run_start_index 0 --run_end_index 499`
+- Train (physics-corrected surrogate, report-primary):
+  - `python -m scripts.ml.train_corrective --ml_dir data/processed/ml --out_dir outputs/ml/corrective_surrogate --device cuda --run_start_index 0 --run_end_index 499`
   - optional staged local run bundles:
-    `python -m scripts.ml.train_pinn --ml_dir data/processed/ml --out_dir outputs/ml/pinn --device cuda --run_root_override /tmp/staged_local_dataset/v3_literature_dataset_clearance_v1/dataset`
-  - current `train_pinn.py` is a hybrid path (blackbox backbone + physics-corrective PINN stage)
-  - blackbox/hybrid PINN write aligned prediction + physics diagnostics
+    `python -m scripts.ml.train_corrective --ml_dir data/processed/ml --out_dir outputs/ml/corrective_surrogate --device cuda --run_root_override /tmp/staged_local_dataset/v3_literature_dataset_clearance_v1/dataset`
+  - current `train_corrective.py` is a blackbox backbone + physics-corrective stage path
+  - blackbox/physics-corrected surrogate runs write aligned prediction + physics diagnostics
     files (`pred_val.npz`, `pred_test.npz`,
     `diagnostics/physics/physics_diag_*`) for val/test comparison.
   - scalar comparison is standardized via scalar targets derived from predicted
@@ -170,8 +170,12 @@ Subset evaluation/training by run index (inclusive):
 
 ### 7) Surrogate vs simulator timing
 
-- `python -m scripts.sim.time_comparison --config configs/sim/v3_layers_literature_clearance.yaml --ml_dir data/processed/ml --pinn_model outputs/ml/pinn/pinn_model.pt --device cuda --out_dir results/timing`
-  - `results/timing/time_comparison.json` with simulator timing, blackbox timing, hybrid PINN timing, and derived speedups
+- `python -m scripts.sim.time_comparison --config configs/sim/v3_layers_literature_clearance.yaml --ml_dir data/processed/ml --corrective_model outputs/ml/final_comparison/corrective_ridge_seed42/corrective_model.pt --device cpu --out_dir outputs/timing/final_recheck_cuda`
+  - `outputs/timing/final_recheck_cuda/time_comparison.json` with simulator timing plus inference-only apples-to-apples blackbox vs physics-corrected surrogate timing and derived speedups
+  - timing script accepts only checkpoints that match the current `train_corrective` architecture
+  - optional best-hardware timing (deployment view) for corrective:
+    - `python -m scripts.sim.time_comparison --config configs/sim/v3_layers_literature_clearance.yaml --ml_dir data/processed/ml --corrective_model outputs/ml/final_comparison/corrective_ridge_seed42/corrective_model.pt --device cpu --best_hardware_device cuda --out_dir outputs/timing/final_recheck_cuda`
+    - if requested device is unavailable in your PyTorch build, apples-to-apples CPU timing still runs and best-hardware timing is skipped with a note in the JSON
 
 ### 8) Clean generated folders
 
@@ -197,15 +201,13 @@ The `notebooks/` folder provides runnable, narrative walkthroughs:
 - `03_convergence_and_1d_benchmark.ipynb`: grid refinement + analytic check
 - `04_literature_calibration_lidocaine.ipynb`: compare to literature targets
 - `05_dataset_design_and_qc.ipynb`: build and QC dataset splits
-- `06_surrogate_comparison.ipynb`: compare blackbox vs hybrid PINN surrogate stages
+- `06_surrogate_comparison.ipynb`: compare blackbox vs physics-corrected surrogate stages
 - `07_physics_diagnostics_and_robustness.ipynb`: physics diagnostics and robustness checks
 
 ## Configs
 
 Main simulation configs:
 - `configs/sim/v1_baseline.yaml`
-- `configs/sim/v2_layers_clearance.yaml`
-- `configs/sim/v2_layers_literature.yaml`
 - `configs/sim/v3_hetero_patch_timeDecay.yaml`
 - `configs/sim/v2_lidocaine_compare.yaml` (literature compare)
 - `configs/sim/v3_layers_literature.yaml`
@@ -214,8 +216,8 @@ Main simulation configs:
 - `configs/sim/v3_literature_dataset_spec_clearance.yaml` (clearance-sensitivity dataset spec)
 
 ML configs:
-- No static PINN YAML config is required.
-- Use CLI flags in `scripts/ml/train_pinn.py` for runtime control.
+- No static corrective-surrogate YAML config is required.
+- Use CLI flags in `scripts/ml/train_corrective.py` for runtime control.
 
 Key sections:
 - `grid`: `H, W, dx, dt, T, save_every`
@@ -244,3 +246,4 @@ sampled from this discrete set to keep the input space simple and consistent.
 - `docs/config_guide.md`: config fields and options
 - `docs/tests_overview.md`: unit test summary
 - `docs/literature_layers_reference.md`: literature anchors and layer assumptions
+- `docs/report_results_reproducibility.md`: exact commands/config chain for final report ML results

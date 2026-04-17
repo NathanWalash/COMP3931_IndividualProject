@@ -1,5 +1,5 @@
 # V3 literature-layer dataset spec with dermal clearance sensitivity.
-# This spec is intended for black-box/PINN comparison with explicit k_dermis input.
+# This spec is intended for black-box/physics-corrected surrogate comparison with explicit k_dermis input.
 
 version: v3_literature_dataset_clearance_v1
 description: "Literature-layered V3 with finite-dose donor and sampled dermal clearance for sensitivity analysis"
@@ -75,7 +75,7 @@ splits:
     value: 0.25
 
 targets:
-  # Primary set used for ML/PINN training reports.
+  # Primary set used for ML physics-corrected surrogate training reports.
   # Keep one delivered-mass style scalar in primary to avoid redundancy.
   # In 24h runs, AUC_J and M_delivered_24h are effectively equivalent.
   # Keep Tlag and AUC_J as secondary for finite-dose reporting.
@@ -104,7 +104,7 @@ evaluation_metrics:
     - RMSE
     - relative_error_percent
     - R2
-  pinn_physics:
+  corrective_physics:
     - pde_residual
     - bc_violation
     - ic_violation

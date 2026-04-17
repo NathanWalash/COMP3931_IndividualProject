@@ -1,0 +1,375 @@
+{
+  "split": "test",
+  "top_n": 10,
+  "stage_name": "stageFinal",
+  "rankings": {
+    "stageFinal_curve_relative_l2": [
+      {
+        "row_index": 77,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_532",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.200731461428933,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.19254761778374543,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2212256136490045
+      },
+      {
+        "row_index": 29,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_496",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.20054689007252297,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.19856952224913454,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2137594535765615
+      },
+      {
+        "row_index": 67,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_183",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.1915717799808064,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.18578872262461993,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2243852453657784
+      },
+      {
+        "row_index": 59,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_011",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.1885350025753301,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.18617578178441085,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2241770686562674
+      },
+      {
+        "row_index": 57,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_514",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.18832577215382812,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.1850964908111381,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2276284112389884
+      },
+      {
+        "row_index": 51,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_937",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.18536082898191486,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.18141815249326265,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2188437866679989
+      },
+      {
+        "row_index": 96,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_215",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.1850169328464796,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.18291676015025637,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.226081798495369
+      },
+      {
+        "row_index": 107,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_318",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.1828003493569753,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.1788562016906183,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2180592389067317
+      },
+      {
+        "row_index": 112,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_819",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.1810105089908014,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.173133548233865,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2179699003179696
+      },
+      {
+        "row_index": 142,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_053",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.18100529347058517,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.17313722649670757,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2202823690363993
+      }
+    ],
+    "stageFinal_bc_bottom_flux_rel_rmse": [
+      {
+        "row_index": 29,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_496",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.20054689007252297,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.19856952224913454,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2137594535765615
+      },
+      {
+        "row_index": 77,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_532",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.200731461428933,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.19254761778374543,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2212256136490045
+      },
+      {
+        "row_index": 59,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_011",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.1885350025753301,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.18617578178441085,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2241770686562674
+      },
+      {
+        "row_index": 67,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_183",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.1915717799808064,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.18578872262461993,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2243852453657784
+      },
+      {
+        "row_index": 57,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_514",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.18832577215382812,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.1850964908111381,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2276284112389884
+      },
+      {
+        "row_index": 96,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_215",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.1850169328464796,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.18291676015025637,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.226081798495369
+      },
+      {
+        "row_index": 51,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_937",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.18536082898191486,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.18141815249326265,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2188437866679989
+      },
+      {
+        "row_index": 107,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_318",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.1828003493569753,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.1788562016906183,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2180592389067317
+      },
+      {
+        "row_index": 74,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_992",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.17645998744100214,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.17486041110120124,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2255205383964003
+      },
+      {
+        "row_index": 12,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_258",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.1797530400398994,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.17451577362552925,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.217603649181803
+      }
+    ],
+    "stageFinal_negative_flux_fraction": [
+      {
+        "row_index": 0,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_275",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.1433163682139647,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.14184217614353833,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2223509101065098
+      },
+      {
+        "row_index": 1,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_158",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.0573789954290881,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.0569394874548619,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.219085153391157
+      },
+      {
+        "row_index": 2,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_041",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.0445531733456501,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.04411380879897112,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2227673093191167
+      },
+      {
+        "row_index": 3,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_343",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.07827419512825623,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.07759437713230471,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.217628835463526
+      },
+      {
+        "row_index": 4,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_701",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.06394585364555733,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.06341218254504578,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2212212248204364
+      },
+      {
+        "row_index": 5,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_547",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.07051419360398822,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.07003270236508306,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2205205200564089
+      },
+      {
+        "row_index": 6,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_811",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.052419896140343446,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.052028803325195966,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2218837982822788
+      },
+      {
+        "row_index": 7,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_649",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.047552751195676896,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.04720802207167437,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2182316508539555
+      },
+      {
+        "row_index": 8,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_546",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.1355693153156199,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.13442860691227146,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2205513821250513
+      },
+      {
+        "row_index": 9,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_119",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.044991091217616394,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.044596602115320925,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2190531581264568
+      }
+    ],
+    "stageFinal_pde_mass_balance_rel_rmse": [
+      {
+        "row_index": 90,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_969",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.03441046845379076,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.034215025150617126,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2429403582240148
+      },
+      {
+        "row_index": 70,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_579",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.11636383752627702,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.1128581966932153,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2409733446641167
+      },
+      {
+        "row_index": 10,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_184",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.06931118657354089,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.0683865492847094,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2379753055332212
+      },
+      {
+        "row_index": 89,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_669",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.15898005135361667,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.15849290571865907,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2361218003414793
+      },
+      {
+        "row_index": 45,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_966",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.16834613296559234,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.16773305592547108,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2356237761316398
+      },
+      {
+        "row_index": 101,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_070",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.1609879853730493,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.15962547065770794,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2352807392282958
+      },
+      {
+        "row_index": 87,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_732",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.044822446718090846,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.04472005973599498,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.233589325526567
+      },
+      {
+        "row_index": 94,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_353",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.03540904386580765,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.03531636174556797,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.232356083173169
+      },
+      {
+        "row_index": 135,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_667",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.046213609316104694,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.046125426797387147,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2322803112859981
+      },
+      {
+        "row_index": 97,
+        "run_dir": "/run/media/sc23n2w/DATA/COMP3931_IndividualProject/outputs/sim/v3_literature_dataset_clearance_v1/dataset/run_068",
+        "boundary_mode": "time_decay",
+        "stageFinal_curve_relative_l2": 0.14706851731044637,
+        "stageFinal_bc_bottom_flux_rel_rmse": 0.14555317963151143,
+        "stageFinal_negative_flux_fraction": 0.0,
+        "stageFinal_pde_mass_balance_rel_rmse": 1.2312157731022138
+      }
+    ]
+  }
+}

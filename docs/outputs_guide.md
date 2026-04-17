@@ -49,15 +49,17 @@ Run folder: `outputs/ml/<run_name>/`
   - `plots/test/scalar_parity.png`
   - `plots/test/scalar_residuals.png`
 
-## Hybrid PINN outputs (`train_pinn.py`)
+## Physics-corrected surrogate outputs (`train_corrective.py`)
 
 Run folder: `outputs/ml/<run_name>/`
 
-- Model structure: blackbox backbone plus physics-corrective PINN stage.
+- Model structure: blackbox backbone plus physics-corrective stage.
 - Metrics: `metrics_val.json`, `metrics_test.json`
 - Predictions: `pred_val.npz`, `pred_test.npz`
-  - includes `j_stageBase`, `j_stagePINN`, and `j_stageFinal`
+  - includes `j_stageBase`, `j_stageCorrected`, and `j_stageFinal`
 - History/summary: `history.json`, `summary.json`
+  - `history.json` records `loss_total`, `loss_flux`, `loss_anchor`, `loss_peak`, `val_rel_l2`, and optional `gate_mean`
+  - `summary.json` stores `corrective_config` and `best_val_rel_l2_stageCorrected`
 - Physics diagnostics:
   - `diagnostics/physics/physics_diag_val.csv`
   - `diagnostics/physics/physics_diag_test.csv`
@@ -74,13 +76,27 @@ Run folder: `outputs/ml/<run_name>/`
 ## Timing comparison outputs (`time_comparison.py`)
 
 Run command:
-- `python -m scripts.sim.time_comparison --config <sim_config> --ml_dir <ml_dir> --pinn_model <pinn_model.pt> --device <cpu|cuda> --out_dir <out_dir>`
+- `python -m scripts.sim.time_comparison --config <sim_config> --ml_dir <ml_dir> --corrective_model <corrective_model.pt> --device cpu --out_dir <out_dir>`
+- optional deployment-view add-on:
+  - `python -m scripts.sim.time_comparison --config <sim_config> --ml_dir <ml_dir> --corrective_model <corrective_model.pt> --device cpu --best_hardware_device cuda --out_dir <out_dir>`
 
 Default output:
-- `results/timing/time_comparison.json`
+- `outputs/timing/time_comparison.json`
 
 Key fields:
 - `simulator`: repeated full PDE runtime per run (`mean_seconds`, `std_seconds`, grid, step count)
-- `blackbox_ridge`: surrogate train and inference timing on test split
-- `pinn`: end-to-end hybrid PINN stageFinal inference timing on test split
-- `speedup_blackbox_vs_sim_per_sample`, `speedup_pinn_vs_sim_per_sample`: derived speedups
+- `surrogate_setup`: shared timing setup for both surrogates (`backbone_fit_seconds`, repeats, split sizes)
+- `blackbox_ridge`: inference-only timing on test split (shared backbone + blackbox stage)
+- `corrective_surrogate`: inference-only timing on test split (shared backbone + corrective stageFinal, apples-to-apples CPU)
+- `corrective_surrogate_best_hardware` (optional): extra corrective inference timing on requested device
+- `speedup_blackbox_vs_sim_per_sample`, `speedup_corrective_vs_sim_per_sample`: derived speedups
+- `speedup_corrective_best_hardware_vs_sim_per_sample` (optional): deployment-view speedup
+- `corrective_vs_blackbox_inference_ratio`, `corrective_overhead_vs_blackbox_percent`: direct surrogate-to-surrogate overhead
+- `corrective_best_hardware_vs_apples_ratio`, `corrective_best_hardware_improvement_percent` (optional): best-hardware vs apples corrective comparison
+- `corrective_best_hardware_vs_blackbox_inference_ratio`, `corrective_best_hardware_overhead_vs_blackbox_percent` (optional): best-hardware corrective vs blackbox
+
+Notes:
+- Surrogate timing is enforced as apples-to-apples CPU inference.
+- Best-hardware timing, when requested, is an additional deployment-view measurement for corrective only.
+- If requested best-hardware device is unavailable, the script records a skip reason and still writes apples-to-apples CPU timing.
+- Corrective checkpoint loading is strict to the current architecture; incompatible checkpoints are rejected.

@@ -1,0 +1,76 @@
+{
+  "simulator": {
+    "mean_seconds": 29.411563035600558,
+    "std_seconds": 0.6672340661927676,
+    "min_seconds": 28.12828721200276,
+    "max_seconds": 29.970269646000816,
+    "n_repeats": 5,
+    "grid": "64x64",
+    "T": 86400.0,
+    "dt": 0.2,
+    "n_steps": 432001
+  },
+  "surrogate_setup": {
+    "comparison_scope": "inference_only_apples_to_apples",
+    "backbone_fit_seconds": 0.3208280559993,
+    "n_train": 700,
+    "n_test": 150,
+    "warmup_repeats": 3,
+    "inference_repeats": 20,
+    "best_hardware_device_requested": "cuda",
+    "best_hardware_skip_reason": null
+  },
+  "blackbox_ridge": {
+    "inference_mean_seconds": 0.0015740621005534195,
+    "inference_std_seconds": 1.3118139872707394e-05,
+    "inference_per_sample_ms": 0.010493747337022796,
+    "n_test": 150,
+    "warmup_repeats": 3,
+    "inference_repeats": 20,
+    "device": "cpu",
+    "comparison_scope": "inference_only_apples_to_apples",
+    "includes_backbone_stage": true
+  },
+  "corrective_surrogate": {
+    "inference_mean_seconds": 0.36274640885021653,
+    "inference_std_seconds": 0.007276287470078967,
+    "inference_per_sample_ms": 2.4183093923347765,
+    "n_test": 150,
+    "warmup_repeats": 3,
+    "inference_repeats": 20,
+    "device": "cpu",
+    "comparison_scope": "inference_only_apples_to_apples",
+    "includes_backbone_stage": true,
+    "corrective_flux_head_mode": "corrective"
+  },
+  "corrective_surrogate_best_hardware": {
+    "inference_mean_seconds": 0.010648132850292313,
+    "inference_std_seconds": 0.0005122533552672627,
+    "inference_per_sample_ms": 0.07098755233528209,
+    "n_test": 150,
+    "warmup_repeats": 3,
+    "inference_repeats": 20,
+    "device": "cuda",
+    "comparison_scope": "inference_only_apples_to_apples",
+    "includes_backbone_stage": true,
+    "corrective_flux_head_mode": "corrective"
+  },
+  "speedup_blackbox_vs_sim_per_sample": 2802770.267951294,
+  "speedup_corrective_vs_sim_per_sample": 12162.034820203433,
+  "speedup_corrective_best_hardware_vs_sim_per_sample": 414320.00495927065,
+  "corrective_vs_blackbox_inference_ratio": 230.45241272417377,
+  "corrective_overhead_vs_blackbox_percent": 22945.241272417377,
+  "corrective_best_hardware_vs_apples_ratio": 0.029354206107906882,
+  "corrective_best_hardware_improvement_percent": 97.06457938920931,
+  "corrective_best_hardware_vs_blackbox_inference_ratio": 6.764747621169819,
+  "corrective_best_hardware_overhead_vs_blackbox_percent": 576.474762116982,
+  "notes": {
+    "comparison_scope": "inference_only_apples_to_apples_with_optional_best_hardware",
+    "simulator_unit": "seconds per full PDE run",
+    "surrogate_unit": "seconds per test split and per sample (derived)",
+    "speedup_definition": "simulator_seconds_per_run / surrogate_seconds_per_sample",
+    "apples_to_apples_device": "cpu",
+    "best_hardware_device_requested": "cuda",
+    "best_hardware_skip_reason": null
+  }
+}
