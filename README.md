@@ -170,8 +170,12 @@ Subset evaluation/training by run index (inclusive):
 
 ### 7) Surrogate vs simulator timing
 
-- `python -m scripts.sim.time_comparison --config configs/sim/v3_layers_literature_clearance.yaml --ml_dir data/processed/ml --corrective_model outputs/ml/corrective_surrogate/corrective_model.pt --device cuda --out_dir results/timing`
-  - `results/timing/time_comparison.json` with simulator timing, blackbox timing, physics-corrected surrogate timing, and derived speedups
+- `python -m scripts.sim.time_comparison --config configs/sim/v3_layers_literature_clearance.yaml --ml_dir data/processed/ml --corrective_model outputs/ml/corrective_surrogate/corrective_model.pt --device cpu --out_dir outputs/timing`
+  - `outputs/timing/time_comparison.json` with simulator timing plus inference-only apples-to-apples blackbox vs physics-corrected surrogate timing and derived speedups
+  - timing script accepts only checkpoints that match the current `train_corrective` architecture
+  - optional best-hardware timing (deployment view) for corrective:
+    - `python -m scripts.sim.time_comparison --config configs/sim/v3_layers_literature_clearance.yaml --ml_dir data/processed/ml --corrective_model outputs/ml/corrective_surrogate/corrective_model.pt --device cpu --best_hardware_device cuda --out_dir outputs/timing`
+    - if requested device is unavailable in your PyTorch build, apples-to-apples CPU timing still runs and best-hardware timing is skipped with a note in the JSON
 
 ### 8) Clean generated folders
 
