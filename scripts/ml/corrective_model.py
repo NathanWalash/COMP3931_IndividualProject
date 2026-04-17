@@ -4,14 +4,12 @@ import numpy as np
 import torch
 
 
-class RunConditionedPINN(torch.nn.Module):
-    def __init__(self, feature_dim, hidden_dim=128, depth=4, fourier_frequencies=6, correction_scale=0.4, additive_correction=False, use_learned_gate=False, gate_init_bias=-2.0):
+class RunConditionedCorrectiveSurrogate(torch.nn.Module):
+    def __init__(self, feature_dim, hidden_dim=128, depth=4, fourier_frequencies=6, correction_scale=0.4, use_learned_gate=False, gate_init_bias=-2.0):
         super().__init__()
-        # correction_scale controls the correction magnitude.
-        # Multiplicative mode (default): exp(scale*tanh(x)) range [exp(-s), exp(+s)].
-        # Additive mode: j_base + scale * tanh(raw) * |j_base|, so +/-scale fraction.
+        # correction_scale controls additive correction magnitude.
+        # j_base + scale * tanh(raw) * |j_base| gives a bounded fractional delta.
         self.correction_scale = float(correction_scale)
-        self.additive_correction = bool(additive_correction)
         self.use_learned_gate = bool(use_learned_gate)
         # Concentration head takes run features + (y,t) coordinates.
         self.fourier_frequencies = int(max(0, fourier_frequencies))
@@ -36,7 +34,7 @@ class RunConditionedPINN(torch.nn.Module):
         torch.nn.init.zeros_(self.c_head.weight)
         torch.nn.init.zeros_(self.c_head.bias)
 
-        # Flux head predicts a smooth multiplicative correction over a time basis.
+        # Flux head predicts a smooth correction over a time basis.
         flux_basis_count = 48
         flux_layers = []
         flux_in_dim = int(feature_dim)
@@ -55,8 +53,8 @@ class RunConditionedPINN(torch.nn.Module):
         self.flux_basis_sigma = 1.5 / float(max(1, flux_basis_count - 1))
 
         # Learned gate: predicts per-sample lambda(x) in [0,1] that controls
-        # how much to trust the PINN correction vs the backbone.
-        # lambda=0 means pure backbone, lambda=1 means full PINN correction.
+        # how much to trust the corrective branch vs the backbone.
+        # lambda=0 means pure backbone, lambda=1 means full corrective branch.
         if self.use_learned_gate:
             gate_layers = []
             gate_in_dim = int(feature_dim)
@@ -95,7 +93,7 @@ class RunConditionedPINN(torch.nn.Module):
 
     def forward_gate(self, x_feat):
         # Predict per-sample gate lambda in [0, 1].
-        # lambda=0 means pure backbone, lambda=1 means full PINN correction.
+        # lambda=0 means pure backbone, lambda=1 means full corrective branch.
         if not self.use_learned_gate:
             return None
         gate_hidden = self.gate_hidden(x_feat)
@@ -115,17 +113,12 @@ class RunConditionedPINN(torch.nn.Module):
             return torch.nn.functional.softplus(raw) * 1e-9
         # Use override scale if provided (for progressive annealing), else class default.
         active_scale = float(correction_scale_override) if correction_scale_override is not None else self.correction_scale
-        if self.additive_correction:
-            # Additive mode: delta scales with local backbone magnitude so the
-            # correction is scale-appropriate at every time point.  Detach j_base
-            # from the scaling so gradients only flow through raw.
-            scale_ref = torch.abs(j_base).detach() + 1e-15
-            delta = active_scale * torch.tanh(raw) * scale_ref
-            j_corrected = torch.clamp(j_base + delta, min=0.0)
-        else:
-            # Multiplicative mode: bounded correction factor around 1.0.
-            corr = torch.exp(active_scale * torch.tanh(raw))
-            j_corrected = torch.clamp(j_base * corr, min=0.0)
+        # Additive-only correction path: delta scales with local backbone
+        # magnitude so the correction is scale-appropriate at each time point.
+        # Detach j_base from the scaling so gradients only flow through raw.
+        scale_ref = torch.abs(j_base).detach() + 1e-15
+        delta = active_scale * torch.tanh(raw) * scale_ref
+        j_corrected = torch.clamp(j_base + delta, min=0.0)
         # If learned gate is active, blend backbone and corrected prediction.
         if self.use_learned_gate:
             # Gate is computed per-run, but we may have time-expanded points.
@@ -152,38 +145,6 @@ def sample_time_ids(signal_per_time, sample_count):
     weights = torch.clamp(signal_per_time, min=0.0) + 1e-8
     weights = weights / torch.sum(weights)
     return torch.multinomial(weights, num_samples=int(sample_count), replacement=True)
-
-
-def sample_depth_ids(signal_per_depth, sample_count):
-    # Reuse weighted sampling on depth so collocation focuses on active regions.
-    weights = torch.clamp(signal_per_depth, min=0.0) + 1e-8
-    weights = weights / torch.sum(weights)
-    return torch.multinomial(weights, num_samples=int(sample_count), replacement=True)
-
-
-def evaluate_cstar_rmse(model, split_torch, max_points=16384):
-    # Fast concentration sanity metric sampled across run/time/depth points.
-    model.eval()
-    n_rows = int(split_torch["x_feat"].shape[0])
-    t_count = int(split_torch["c_star"].shape[1])
-    h_count = int(split_torch["c_star"].shape[2])
-    total_points = n_rows * t_count * h_count
-    sample_points = int(min(int(max_points), int(total_points)))
-
-    run_ids = torch.randint(low=0, high=n_rows, size=(sample_points,), device=split_torch["x_feat"].device)
-    time_ids = torch.randint(low=0, high=t_count, size=(sample_points,), device=split_torch["x_feat"].device)
-    y_ids = torch.randint(low=0, high=h_count, size=(sample_points,), device=split_torch["x_feat"].device)
-
-    x_sample = split_torch["x_feat"][run_ids]
-    t_sample = split_torch["t_norm"][run_ids, time_ids].reshape(-1, 1)
-    y_sample = (y_ids.to(torch.float32) / float(max(1, h_count - 1))).reshape(-1, 1)
-    target = split_torch["c_star"][run_ids, time_ids, y_ids].reshape(-1, 1)
-
-    with torch.no_grad():
-        pred = model(x_sample, y_sample, t_sample)
-
-    rmse = torch.sqrt(torch.mean((pred - target) ** 2))
-    return float(rmse.detach().cpu().item())
 
 
 def predict_flux_curves(model, split_torch, batch_runs=16):

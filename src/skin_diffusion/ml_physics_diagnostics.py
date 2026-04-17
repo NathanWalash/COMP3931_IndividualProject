@@ -312,9 +312,18 @@ def build_worst_case_report(rows, split_name, stage_name="stageC", top_n=10):
         "bc_bottom_flux_rel_rmse",
         "negative_flux_fraction",
     ]
-    for optional in ("pde_stageA_flux_rel_rmse", "pde_mass_balance_rel_rmse"):
-        if (stage + "_" + optional) in rows[0]:
-            suffixes.append(optional)
+    if (stage + "_pde_mass_balance_rel_rmse") in rows[0]:
+        suffixes.append("pde_mass_balance_rel_rmse")
+    # Include any anchor-distance metric emitted by diagnostics, e.g.
+    # pde_stageBase_flux_rel_rmse (new naming) or older stage labels.
+    for key in rows[0]:
+        if not key.startswith(stage + "_pde_"):
+            continue
+        if not key.endswith("_flux_rel_rmse"):
+            continue
+        suffix = key[len(stage) + 1:]
+        if suffix not in suffixes:
+            suffixes.append(suffix)
 
     limit = max(1, int(top_n))
 

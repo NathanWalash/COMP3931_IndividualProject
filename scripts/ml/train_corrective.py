@@ -8,8 +8,8 @@ import numpy as np
 import torch
 
 from scripts.ml.common import extract_c0_feature
-from scripts.ml.pinn_data import build_entries, load_ml_meta_names, load_run_physics_1d, load_split_matrix, load_split_name_map, pack_for_training, tensorize_pack
-from scripts.ml.pinn_model import RunConditionedPINN, curriculum_scale, evaluate_cstar_rmse, predict_flux_curves, sample_depth_ids, sample_time_ids
+from scripts.ml.corrective_data import build_entries, load_ml_meta_names, load_run_physics_1d, load_split_matrix, load_split_name_map, pack_for_training, tensorize_pack
+from scripts.ml.corrective_model import RunConditionedCorrectiveSurrogate, curriculum_scale, predict_flux_curves, sample_time_ids
 from skin_diffusion.ml_curve_plots import plot_curve_error_over_time, plot_curve_examples, plot_per_run_error_distribution, plot_training_history
 from skin_diffusion.ml_curve_backbone import fit_curve_backbone, parse_float_csv, predict_curve_backbone
 from skin_diffusion.ml_metrics import compute_curve_metrics
@@ -39,31 +39,26 @@ def set_global_seed(seed_value):
         torch.cuda.manual_seed_all(seed_int)
 
 
-def train_pinn(model, train_torch, val_torch, args):
-    # Main training loop: data fit + physics losses with optional phase-2 tightening.
+def train_corrective(model, train_torch, val_torch, args):
+    # Main training loop for the report-final corrective objective.
+    # This keeps only terms that were active in the final runs:
+    # flux fit, anchor-to-backbone, nonnegativity, peak guidance, gate regularization.
     optimizer = torch.optim.Adam(model.parameters(), lr=float(args.lr))
     n_train = int(train_torch["x_feat"].shape[0])
-    t_count = int(train_torch["t_norm"].shape[1])
-    h_count = int(train_torch["d1d"].shape[1])
     phase1_epochs = int(args.epochs)
-    phase2_epochs = int(args.phase2_epochs)
-    total_epochs = int(phase1_epochs + phase2_epochs)
+    total_epochs = int(phase1_epochs)
 
     # Cosine annealing scheduler for smoother convergence over longer runs.
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_epochs, eta_min=float(args.lr) * 0.01)
 
     best_state = None
     best_val_rel_l2 = float("inf")
-    best_val_cstar_rmse = float("inf")
-    best_phase1_val_rel_l2 = float("inf")
-    phase2_stopped_early = False
     final_epoch_ran = 0
     history = []
 
     epoch_index = 1
     while epoch_index <= int(total_epochs):
         model.train()
-        is_phase2 = bool(epoch_index > int(phase1_epochs))
 
         # Sample a fresh run mini-batch each epoch.
         run_pick = np.random.permutation(n_train)[: int(min(args.batch_runs, n_train))]
@@ -71,134 +66,19 @@ def train_pinn(model, train_torch, val_torch, args):
         x_batch = train_torch["x_feat"][run_pick_t]
         j_true_batch = train_torch["j_true"][run_pick_t]
         j_base_batch = train_torch["j_base"][run_pick_t]
-        d_batch = train_torch["d1d"][run_pick_t]
-        d_dy_batch = train_torch["d1d_dy_star"][run_pick_t]
-        k_batch = train_torch["k1d"][run_pick_t]
-        c_star_batch = train_torch["c_star"][run_pick_t]
         t_norm_batch = train_torch["t_norm"][run_pick_t]
         t_phys_batch = train_torch["t_phys"][run_pick_t]
-        patch_width_batch = train_torch["patch_width"][run_pick_t]
-        c0_batch = train_torch["c0"][run_pick_t]
-        decay_batch = train_torch["decay"][run_pick_t]
-        mode_batch = train_torch["mode_flag"][run_pick_t]
-        depth_batch = train_torch["depth"][run_pick_t]
-        t_end_batch = train_torch["t_end"][run_pick_t]
         batch_count = int(x_batch.shape[0])
-        c_signal_time = torch.mean(c_star_batch.detach(), dim=(0, 2))
-        c_signal_depth = torch.mean(c_star_batch.detach(), dim=(0, 1))
         j_signal_time = torch.mean(torch.abs(j_true_batch.detach()), dim=0)
 
         # Progressive correction scale: ramp from initial_correction_scale
         # to correction_scale over the first half of training.
         # Computed early because it is needed by forward_j calls below.
-        if hasattr(args, 'initial_correction_scale') and float(args.initial_correction_scale) < float(args.correction_scale):
+        if float(args.initial_correction_scale) < float(args.correction_scale):
             ramp_frac = min(1.0, float(epoch_index) / float(max(1, phase1_epochs) * 0.5))
             current_correction_scale = float(args.initial_correction_scale) + ramp_frac * (float(args.correction_scale) - float(args.initial_correction_scale))
         else:
             current_correction_scale = float(args.correction_scale)
-
-        # Concentration supervision from simulator snapshots (stage-A sanity target).
-        conc_count = int(args.concentration_points)
-        run_ids_conc = torch.randint(low=0, high=batch_count, size=(conc_count,), device=x_batch.device)
-        time_ids_conc = sample_time_ids(c_signal_time, conc_count).to(x_batch.device)
-        y_ids_conc = sample_depth_ids(c_signal_depth, conc_count).to(x_batch.device)
-        x_conc = x_batch[run_ids_conc]
-        t_conc = t_norm_batch[run_ids_conc, time_ids_conc].reshape(-1, 1)
-        y_conc = (y_ids_conc.to(torch.float32) / float(max(1, h_count - 1))).reshape(-1, 1)
-        c_conc_true = c_star_batch[run_ids_conc, time_ids_conc, y_ids_conc].reshape(-1, 1)
-        c_conc_pred = model(x_conc, y_conc, t_conc)
-        conc_scale = float(args.conc_log_scale)
-        c_pred_asinh = torch.asinh(c_conc_pred * conc_scale)
-        c_true_asinh = torch.asinh(c_conc_true * conc_scale)
-        loss_c_data = torch.mean((c_pred_asinh - c_true_asinh) ** 2)
-        loss_c_nonneg = torch.mean(torch.relu(-c_conc_pred) ** 2)
-
-        # Near-bottom concentration supervision to shape the discrete gradient used for flux.
-        inner_count = int(args.inner_profile_points)
-        run_ids_inner = torch.randint(low=0, high=batch_count, size=(inner_count,), device=x_batch.device)
-        time_ids_inner = sample_time_ids(j_signal_time, inner_count).to(x_batch.device)
-        x_inner = x_batch[run_ids_inner]
-        t_inner = t_norm_batch[run_ids_inner, time_ids_inner].reshape(-1, 1)
-        y_inner = torch.full_like(
-            t_inner,
-            float(h_count - 2) / float(max(1, h_count - 1)),
-        )
-        c_inner_true = c_star_batch[run_ids_inner, time_ids_inner, h_count - 2].reshape(-1, 1)
-        c_inner_pred = model(x_inner, y_inner, t_inner)
-        c_inner_pred_asinh = torch.asinh(c_inner_pred * conc_scale)
-        c_inner_true_asinh = torch.asinh(c_inner_true * conc_scale)
-        loss_inner_profile = torch.mean((c_inner_pred_asinh - c_inner_true_asinh) ** 2)
-
-        # PDE residual on interior collocation points in dimensionless form.
-        pde_count = int(args.collocation_points)
-        run_ids_pde = torch.randint(low=0, high=batch_count, size=(pde_count,), device=x_batch.device)
-        time_ids_pde = sample_time_ids(c_signal_time[1:], pde_count).to(x_batch.device) + 1
-        y_ids_pde = sample_depth_ids(c_signal_depth[1 : h_count - 1], pde_count).to(x_batch.device) + 1
-        x_pde = x_batch[run_ids_pde]
-        t_pde = t_norm_batch[run_ids_pde, time_ids_pde].reshape(-1, 1)
-        y_pde = (y_ids_pde.to(torch.float32) / float(max(1, h_count - 1))).reshape(-1, 1)
-        y_pde.requires_grad_(True)
-        t_pde.requires_grad_(True)
-        c_pde = model(x_pde, y_pde, t_pde)
-        c_y = torch.autograd.grad(
-            c_pde,
-            y_pde,
-            grad_outputs=torch.ones_like(c_pde),
-            create_graph=True,
-            retain_graph=True,
-        )[0]
-        c_t = torch.autograd.grad(
-            c_pde,
-            t_pde,
-            grad_outputs=torch.ones_like(c_pde),
-            create_graph=True,
-            retain_graph=True,
-        )[0]
-        c_yy = torch.autograd.grad(
-            c_y,
-            y_pde,
-            grad_outputs=torch.ones_like(c_y),
-            create_graph=True,
-            retain_graph=True,
-        )[0]
-
-        d_points = d_batch[run_ids_pde, y_ids_pde].reshape(-1, 1)
-        d_dy_points = d_dy_batch[run_ids_pde, y_ids_pde].reshape(-1, 1)
-        k_points = k_batch[run_ids_pde, y_ids_pde].reshape(-1, 1)
-        depth_points = depth_batch[run_ids_pde].reshape(-1, 1)
-        t_end_points = t_end_batch[run_ids_pde].reshape(-1, 1)
-        alpha_points = t_end_points / torch.clamp(depth_points * depth_points, min=1e-12)
-        beta_points = t_end_points * k_points
-        pde_residual = c_t - (alpha_points * ((d_points * c_yy) + (d_dy_points * c_y))) + (beta_points * c_pde)
-        loss_pde = torch.mean(pde_residual * pde_residual)
-
-        # Top/bottom BC losses.
-        bc_count = int(args.bc_points)
-        run_ids_bc = torch.randint(low=0, high=batch_count, size=(bc_count,), device=x_batch.device)
-        time_ids_bc = sample_time_ids(c_signal_time, bc_count).to(x_batch.device)
-        x_bc = x_batch[run_ids_bc]
-        t_bc = t_norm_batch[run_ids_bc, time_ids_bc].reshape(-1, 1)
-        t_phys_bc = t_phys_batch[run_ids_bc, time_ids_bc].reshape(-1, 1)
-        y_top = torch.zeros_like(t_bc)
-        y_bottom = torch.ones_like(t_bc)
-        c_top_pred = model(x_bc, y_top, t_bc)
-        c_bottom_pred = model(x_bc, y_bottom, t_bc)
-        c_patch_star = (
-            mode_batch[run_ids_bc].reshape(-1, 1) * torch.exp(-decay_batch[run_ids_bc].reshape(-1, 1) * t_phys_bc)
-        ) + (1.0 - mode_batch[run_ids_bc].reshape(-1, 1))
-        c_top_target = patch_width_batch[run_ids_bc].reshape(-1, 1) * c_patch_star
-        loss_bc_top = torch.mean((c_top_pred - c_top_target) ** 2)
-        loss_bc_bottom = torch.mean(c_bottom_pred**2)
-
-        # Initial condition loss c*(y,0)=0.
-        ic_count = int(args.ic_points)
-        run_ids_ic = torch.randint(low=0, high=batch_count, size=(ic_count,), device=x_batch.device)
-        y_ids_ic = torch.randint(low=0, high=h_count, size=(ic_count,), device=x_batch.device)
-        x_ic = x_batch[run_ids_ic]
-        t_ic = torch.zeros((ic_count, 1), device=x_batch.device, dtype=torch.float32)
-        y_ic = (y_ids_ic.to(torch.float32) / float(max(1, h_count - 1))).reshape(-1, 1)
-        c_ic_pred = model(x_ic, y_ic, t_ic)
-        loss_ic = torch.mean(c_ic_pred**2)
 
         # Flux data loss plus anchor-to-backbone loss.
         flux_count = int(args.flux_points)
@@ -209,26 +89,13 @@ def train_pinn(model, train_torch, val_torch, args):
         j_flux_base = j_base_batch[run_ids_flux, time_ids_flux].reshape(-1, 1)
         j_flux_pred = model.forward_j(x_flux, t_flux, j_base=j_flux_base, correction_scale_override=current_correction_scale)
 
-        y_flux_bottom = torch.ones_like(t_flux)
-        y_flux_inner = torch.full_like(t_flux, float(h_count - 2) / float(max(1, h_count - 1)))
-        c_flux_bottom = model.forward_c(x_flux, y_flux_bottom, t_flux)
-        c_flux_inner = model.forward_c(x_flux, y_flux_inner, t_flux)
-        d_bottom_flux = d_batch[run_ids_flux, h_count - 2].reshape(-1, 1)
-        c0_flux = c0_batch[run_ids_flux].reshape(-1, 1)
-        depth_flux = depth_batch[run_ids_flux].reshape(-1, 1)
-        dy_star_inv = float(max(1, h_count - 1))
-        grad_star_flux = (c_flux_bottom - c_flux_inner) * dy_star_inv
-        j_flux_from_c = -d_bottom_flux * ((c0_flux / torch.clamp(depth_flux, min=1e-12)) * grad_star_flux)
-
         j_flux_true = j_true_batch[run_ids_flux, time_ids_flux].reshape(-1, 1)
         flux_scale_log = float(args.flux_log_scale)
         j_pred_asinh = torch.asinh(j_flux_pred * flux_scale_log)
         j_true_asinh = torch.asinh(j_flux_true * flux_scale_log)
         j_base_asinh = torch.asinh(j_flux_base * flux_scale_log)
-        j_from_c_asinh = torch.asinh(j_flux_from_c * flux_scale_log)
         loss_flux = torch.mean((j_pred_asinh - j_true_asinh) ** 2)
         loss_anchor = torch.mean((j_pred_asinh - j_base_asinh) ** 2)
-        loss_flux_consistency = torch.mean((j_pred_asinh - j_from_c_asinh) ** 2)
         loss_nonneg = torch.mean(torch.relu(-j_flux_pred) ** 2)
 
         # Peak-focused loss: differentiable J_peak and t_peak supervision.
@@ -237,7 +104,6 @@ def train_pinn(model, train_torch, val_torch, args):
         if float(args.weight_peak) > 0.0:
             # Predict full curves for this batch for peak extraction.
             peak_run_count = min(int(batch_count), 16)
-            peak_run_ids = torch.arange(peak_run_count, device=x_batch.device)
             peak_x = x_batch[:peak_run_count]
             peak_j_base = j_base_batch[:peak_run_count]
             peak_t_norm = t_norm_batch[:peak_run_count]
@@ -267,43 +133,20 @@ def train_pinn(model, train_torch, val_torch, args):
             loss_t_peak = torch.mean(((t_peak_pred - t_peak_true) / t_peak_safe) ** 2)
             loss_peak = loss_j_peak + loss_t_peak
 
-        if is_phase2:
-            # In phase-2 we fully enable flux and PDE terms.
-            flux_scale = 1.0
-            pde_scale = 1.0
-        else:
-            flux_scale = curriculum_scale(
-                epoch_index=epoch_index,
-                warmup_epochs=int(args.flux_warmup_epochs),
-                ramp_epochs=int(args.flux_ramp_epochs),
-            )
-            pde_scale = curriculum_scale(
-                epoch_index=epoch_index,
-                warmup_epochs=int(args.pde_warmup_epochs),
-                ramp_epochs=int(args.pde_ramp_epochs),
-            )
+        flux_scale = curriculum_scale(
+            epoch_index=epoch_index,
+            warmup_epochs=int(args.flux_warmup_epochs),
+            ramp_epochs=int(args.flux_ramp_epochs),
+        )
 
-        # Exponentially decay anchor weight so the PINN can freely deviate from
-        # the backbone later in training once physics losses are dominant.
+        # Exponentially decay anchor weight so the corrective branch can deviate from
+        # the backbone later in training.
         # Reaches ~0.05 by epoch phase1_epochs/2 and ~0.002 by end.
         anchor_half_life = float(max(1, phase1_epochs)) / 6.0
         anchor_decay = float(math.exp(-0.693 * float(epoch_index) / anchor_half_life))
 
-        weight_flux_consistency = float(args.weight_flux_consistency)
-        weight_pde = float(args.weight_pde)
-        weight_bc_top = float(args.weight_bc_top)
-        weight_bc_bottom = float(args.weight_bc_bottom)
-        weight_ic = float(args.weight_ic)
-        if is_phase2:
-            # Tighten selected physics terms during phase-2 fine-tuning.
-            weight_flux_consistency = weight_flux_consistency * float(args.phase2_weight_flux_consistency_mult)
-            weight_pde = weight_pde * float(args.phase2_weight_pde_mult)
-            weight_bc_top = weight_bc_top * float(args.phase2_weight_bc_top_mult)
-            weight_bc_bottom = weight_bc_bottom * float(args.phase2_weight_bc_bottom_mult)
-            weight_ic = weight_ic * float(args.phase2_weight_ic_mult)
-
         # Gate regularisation: gently encourage the gate to stay near 0.5
-        # (neither fully backbone nor fully PINN) at the start, then let it
+        # (neither fully backbone nor fully corrective) at the start, then let it
         # specialise as training progresses.  Only active with --use_learned_gate.
         loss_gate_reg = torch.tensor(0.0, device=x_batch.device, dtype=torch.float32)
         if model.use_learned_gate and float(args.weight_gate_entropy) > 0.0:
@@ -319,16 +162,8 @@ def train_pinn(model, train_torch, val_torch, args):
             loss_gate_reg = -torch.mean(gate_entropy) * float(gate_reg_decay)
 
         total_loss = (
-            (float(args.weight_c_data) * loss_c_data)
-            + (float(args.weight_c_nonneg) * loss_c_nonneg)
-            + (float(args.weight_inner_profile) * loss_inner_profile)
-            + (float(args.weight_flux) * float(flux_scale) * loss_flux)
+            (float(args.weight_flux) * float(flux_scale) * loss_flux)
             + (float(args.weight_anchor) * float(flux_scale) * float(anchor_decay) * loss_anchor)
-            + (float(weight_flux_consistency) * float(flux_scale) * loss_flux_consistency)
-            + (float(weight_pde) * float(pde_scale) * loss_pde)
-            + (float(weight_bc_top) * loss_bc_top)
-            + (float(weight_bc_bottom) * loss_bc_bottom)
-            + (float(weight_ic) * loss_ic)
             + (float(args.weight_nonneg) * loss_nonneg)
             + (float(args.weight_peak) * float(flux_scale) * loss_peak)
             + (float(args.weight_gate_entropy) * loss_gate_reg)
@@ -342,35 +177,26 @@ def train_pinn(model, train_torch, val_torch, args):
 
         if epoch_index == 1 or epoch_index == int(total_epochs) or epoch_index % int(args.eval_every) == 0:
             # Validation is based on curve rel-L2 because that is the final deployment target.
-            j_val_pinn = predict_flux_curves(
+            j_val_corrected = predict_flux_curves(
                 model=model,
                 split_torch=val_torch,
                 batch_runs=int(args.predict_batch_runs),
             )
             val_metrics = compute_curve_metrics(
                 val_torch["j_true"].detach().cpu().numpy(),
-                j_val_pinn,
+                j_val_corrected,
                 val_torch["t_phys"].detach().cpu().numpy(),
                 eps=1e-12,
             )
             val_rel_l2 = float(val_metrics["relative_l2"])
-            val_cstar_rmse = evaluate_cstar_rmse(
-                model=model,
-                split_torch=val_torch,
-                max_points=int(args.eval_concentration_points),
-            )
 
             if val_rel_l2 < best_val_rel_l2:
                 # Keep the best validation checkpoint to avoid end-of-training regressions.
                 best_val_rel_l2 = val_rel_l2
-                best_val_cstar_rmse = val_cstar_rmse
                 state = {}
                 for param_name in model.state_dict():
                     state[param_name] = model.state_dict()[param_name].detach().cpu().clone()
                 best_state = state
-
-            if not is_phase2 and val_rel_l2 < best_phase1_val_rel_l2:
-                best_phase1_val_rel_l2 = val_rel_l2
 
             # Compute gate mean for diagnostics (if gate is active).
             gate_mean_val = 0.0
@@ -381,12 +207,11 @@ def train_pinn(model, train_torch, val_torch, args):
 
             row = {
                 "epoch": int(epoch_index),
-                "phase": "phase2_physics_tighten" if is_phase2 else "phase1_main",
+                "phase": "phase1_main",
                 "loss_total": float(total_loss.detach().cpu().item()),
                 "loss_flux": float(loss_flux.detach().cpu().item()),
-                "loss_pde": float(loss_pde.detach().cpu().item()),
                 "loss_anchor": float(loss_anchor.detach().cpu().item()),
-                "loss_peak": float(loss_peak.detach().cpu().item()) if isinstance(loss_peak, torch.Tensor) else 0.0,
+                "loss_peak": float(loss_peak.detach().cpu().item()),
                 "gate_mean": gate_mean_val,
                 "val_rel_l2": float(val_rel_l2),
             }
@@ -400,53 +225,29 @@ def train_pinn(model, train_torch, val_torch, args):
                 "val_rel_l2=",
                 f"{row['val_rel_l2']:.6e}",
                 f"flux={row['loss_flux']:.4e}",
-                f"pde={row['loss_pde']:.4e}",
                 f"anch={row['loss_anchor']:.4e}",
                 f"peak={row['loss_peak']:.4e}",
                 f"{gate_str}",
             )
 
-            if is_phase2 and phase2_epochs > 0 and np.isfinite(best_phase1_val_rel_l2):
-                # Guard: stop phase-2 if validation rel-L2 drifts above the allowed margin.
-                guard_limit = float(best_phase1_val_rel_l2) * (1.0 + float(args.phase2_max_rel_l2_regression))
-                if float(val_rel_l2) > float(guard_limit):
-                    phase2_stopped_early = True
-                    print(
-                        "phase2_guard_stop",
-                        "epoch",
-                        int(epoch_index),
-                        "val_rel_l2=",
-                        f"{float(val_rel_l2):.6e}",
-                        "guard_limit=",
-                        f"{float(guard_limit):.6e}",
-                    )
-                    final_epoch_ran = int(epoch_index)
-                    break
-
         final_epoch_ran = int(epoch_index)
         epoch_index += 1
 
     if best_state is None:
-        raise ValueError("PINN training did not record any validation checkpoint")
-
-    if not np.isfinite(best_phase1_val_rel_l2):
-        best_phase1_val_rel_l2 = float(best_val_rel_l2)
+        raise ValueError("Corrective surrogate training did not record any validation checkpoint")
 
     model.load_state_dict(best_state)
     return {
         "model": model,
         "history": history,
         "best_val_rel_l2": float(best_val_rel_l2),
-        "best_val_cstar_rmse": float(best_val_cstar_rmse),
-        "best_phase1_val_rel_l2": float(best_phase1_val_rel_l2),
+        "best_phase1_val_rel_l2": float(best_val_rel_l2),
         "phase1_epochs": int(phase1_epochs),
-        "phase2_epochs": int(phase2_epochs),
-        "phase2_stopped_early": bool(phase2_stopped_early),
         "final_epoch_ran": int(final_epoch_ran),
     }
 
 
-def pick_blend_lambda(j_val_true, t_val, j_val_base, j_val_pinn):
+def pick_blend_lambda(j_val_true, t_val, j_val_base, j_val_corrected):
     # No-harm selection on validation split; lambda=0 means fallback to backbone.
     best_lambda = 0.0
     best_metric = None
@@ -454,7 +255,7 @@ def pick_blend_lambda(j_val_true, t_val, j_val_base, j_val_pinn):
     value_index = 0
     while value_index < int(lambda_values.shape[0]):
         lam = float(lambda_values[value_index])
-        j_mix = j_val_base + (lam * (j_val_pinn - j_val_base))
+        j_mix = j_val_base + (lam * (j_val_corrected - j_val_base))
         metrics = compute_curve_metrics(j_val_true, j_mix, t_val, eps=1e-12)
         if best_metric is None or float(metrics["relative_l2"]) < float(best_metric["relative_l2"]):
             best_metric = metrics
@@ -463,11 +264,11 @@ def pick_blend_lambda(j_val_true, t_val, j_val_base, j_val_pinn):
     return float(best_lambda), best_metric
 
 
-def build_metrics_bundle(j_true, t_split, j_base, j_pinn, j_final, y_true, c0_split, target_names):
+def build_metrics_bundle(j_true, t_split, j_base, j_corrected, j_final, y_true, c0_split, target_names):
     # Keep output shape aligned with existing blackbox/hybrid metric conventions.
     t_matrix = np.asarray(t_split, dtype=np.float32)
     y_stage_base = scalar_targets_from_flux_curves(j_base, t_matrix, c0_split, target_names)
-    y_stage_pinn = scalar_targets_from_flux_curves(j_pinn, t_matrix, c0_split, target_names)
+    y_stage_corrected = scalar_targets_from_flux_curves(j_corrected, t_matrix, c0_split, target_names)
     y_stage_final = scalar_targets_from_flux_curves(j_final, t_matrix, c0_split, target_names)
     return {
         "available": True,
@@ -475,9 +276,9 @@ def build_metrics_bundle(j_true, t_split, j_base, j_pinn, j_final, y_true, c0_sp
             "curve": compute_curve_metrics(j_true, j_base, t_matrix, eps=1e-12),
             "scalar": scalar_report(y_true, y_stage_base, target_names),
         },
-        "stagePINN": {
-            "curve": compute_curve_metrics(j_true, j_pinn, t_matrix, eps=1e-12),
-            "scalar": scalar_report(y_true, y_stage_pinn, target_names),
+        "stageCorrected": {
+            "curve": compute_curve_metrics(j_true, j_corrected, t_matrix, eps=1e-12),
+            "scalar": scalar_report(y_true, y_stage_corrected, target_names),
         },
         "stageFinal": {
             "curve": compute_curve_metrics(j_true, j_final, t_matrix, eps=1e-12),
@@ -490,7 +291,7 @@ def main():
     parser = argparse.ArgumentParser()
     # Dataset and output paths.
     parser.add_argument("--ml_dir", default="data/processed/ml")
-    parser.add_argument("--out_dir", default="outputs/ml/pinn")
+    parser.add_argument("--out_dir", default="outputs/ml/corrective_surrogate")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--run_root_override", default=None)
@@ -507,7 +308,6 @@ def main():
 
     # Neural model and optimizer settings.
     parser.add_argument("--epochs", type=int, default=800)
-    parser.add_argument("--phase2_epochs", type=int, default=200)
     parser.add_argument("--eval_every", type=int, default=5)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--batch_runs", type=int, default=48)
@@ -516,50 +316,25 @@ def main():
     parser.add_argument("--depth", type=int, default=4)
     parser.add_argument("--fourier_frequencies", type=int, default=6)
     parser.add_argument("--correction_scale", type=float, default=0.4)
-    parser.add_argument("--additive_correction", action="store_true")
 
     # Curriculum schedule.
     parser.add_argument("--flux_warmup_epochs", type=int, default=3)
     parser.add_argument("--flux_ramp_epochs", type=int, default=5)
-    parser.add_argument("--pde_warmup_epochs", type=int, default=10)
-    parser.add_argument("--pde_ramp_epochs", type=int, default=30)
 
-    # Sampling counts for each loss component.
-    parser.add_argument("--concentration_points", type=int, default=4096)
-    parser.add_argument("--collocation_points", type=int, default=2048)
-    parser.add_argument("--bc_points", type=int, default=512)
-    parser.add_argument("--ic_points", type=int, default=512)
+    # Sampling counts.
     parser.add_argument("--flux_points", type=int, default=2048)
-    parser.add_argument("--inner_profile_points", type=int, default=1024)
-    parser.add_argument("--eval_concentration_points", type=int, default=16384)
 
     # Loss weights.
-    parser.add_argument("--weight_c_data", type=float, default=1.0)
-    parser.add_argument("--weight_c_nonneg", type=float, default=0.1)
-    parser.add_argument("--weight_inner_profile", type=float, default=2.0)
     parser.add_argument("--weight_flux", type=float, default=2.0)
     parser.add_argument("--weight_anchor", type=float, default=0.1)
-    parser.add_argument("--weight_flux_consistency", type=float, default=0.5)
-    parser.add_argument("--weight_pde", type=float, default=0.5)
-    parser.add_argument("--weight_bc_top", type=float, default=0.2)
-    parser.add_argument("--weight_bc_bottom", type=float, default=0.2)
-    parser.add_argument("--weight_ic", type=float, default=0.1)
     parser.add_argument("--weight_nonneg", type=float, default=0.05)
     parser.add_argument("--weight_peak", type=float, default=1.0)
     parser.add_argument("--weight_gate_entropy", type=float, default=0.1)
-    parser.add_argument("--conc_log_scale", type=float, default=5000.0)
     parser.add_argument("--flux_log_scale", type=float, default=1e11)
     parser.add_argument("--use_learned_gate", action="store_true")
     parser.add_argument("--gate_init_bias", type=float, default=-2.0)
     parser.add_argument("--initial_correction_scale", type=float, default=0.1)
 
-    # Phase-2 physics tightening multipliers.
-    parser.add_argument("--phase2_weight_flux_consistency_mult", type=float, default=2.0)
-    parser.add_argument("--phase2_weight_pde_mult", type=float, default=4.0)
-    parser.add_argument("--phase2_weight_bc_top_mult", type=float, default=2.0)
-    parser.add_argument("--phase2_weight_bc_bottom_mult", type=float, default=2.0)
-    parser.add_argument("--phase2_weight_ic_mult", type=float, default=2.0)
-    parser.add_argument("--phase2_max_rel_l2_regression", type=float, default=0.01)
     parser.add_argument("--worst_case_top_n", type=int, default=10)
     args = parser.parse_args()
 
@@ -608,7 +383,7 @@ def main():
     j_val_base, x_val_scaled = predict_curve_backbone(backbone, x_val_raw)
     j_test_base, x_test_scaled = predict_curve_backbone(backbone, x_test_raw)
 
-    # Load simulator-side fields needed by the PDE and BC losses.
+    # Load simulator-side run data used by shared diagnostics and training tensors.
     print("loading run physics for train split ...")
     train_phys = load_run_physics_1d(train_entries)
     print("loading run physics for val split ...")
@@ -621,40 +396,40 @@ def main():
     val_pack = tensorize_pack(pack_for_training(x_val_scaled, j_val_true, j_val_base, val_phys), device)
     test_pack = tensorize_pack(pack_for_training(x_test_scaled, j_test_true, j_test_base, test_phys), device)
 
-    model = RunConditionedPINN(
+    model = RunConditionedCorrectiveSurrogate(
         int(x_train_scaled.shape[1]), int(args.hidden_dim), int(args.depth),
         int(args.fourier_frequencies), float(args.correction_scale),
-        bool(args.additive_correction), bool(args.use_learned_gate), float(args.gate_init_bias),
+        bool(args.use_learned_gate), float(args.gate_init_bias),
     ).to(device)
 
-    # Train with checkpointing and optional phase-2 physics tightening.
-    train_result = train_pinn(model, train_pack, val_pack, args)
+    # Train with checkpointing on validation relative L2.
+    train_result = train_corrective(model, train_pack, val_pack, args)
     model = train_result["model"]
 
     # Build full validation/test curve predictions.
     print("predicting full curves for val/test ...")
-    j_val_pinn = predict_flux_curves(model, val_pack, batch_runs=int(args.predict_batch_runs))
-    j_test_pinn = predict_flux_curves(model, test_pack, batch_runs=int(args.predict_batch_runs))
+    j_val_corrected = predict_flux_curves(model, val_pack, batch_runs=int(args.predict_batch_runs))
+    j_test_corrected = predict_flux_curves(model, test_pack, batch_runs=int(args.predict_batch_runs))
 
-    # Blend is selected on validation to prevent PINN from harming final deployment curves.
-    lambda_best, lambda_metric = pick_blend_lambda(j_val_true, t_val, j_val_base, j_val_pinn)
-    j_val_final = j_val_base + (lambda_best * (j_val_pinn - j_val_base))
-    j_test_final = j_test_base + (lambda_best * (j_test_pinn - j_test_base))
+    # Blend is selected on validation to prevent the corrective stage from harming deployment curves.
+    lambda_best, lambda_metric = pick_blend_lambda(j_val_true, t_val, j_val_base, j_val_corrected)
+    j_val_final = j_val_base + (lambda_best * (j_val_corrected - j_val_base))
+    j_test_final = j_test_base + (lambda_best * (j_test_corrected - j_test_base))
 
     # Save metrics bundles in train/val/test terminology only.
-    metrics_val = build_metrics_bundle(j_val_true, t_val, j_val_base, j_val_pinn, j_val_final,
+    metrics_val = build_metrics_bundle(j_val_true, t_val, j_val_base, j_val_corrected, j_val_final,
                                        y_val_true, c0_val, target_names)
-    metrics_test = build_metrics_bundle(j_test_true, t_test, j_test_base, j_test_pinn, j_test_final,
+    metrics_test = build_metrics_bundle(j_test_true, t_test, j_test_base, j_test_corrected, j_test_final,
                                         y_test_true, c0_test, target_names)
     (out_dir / "metrics_val.json").write_text(json.dumps(metrics_val, indent=2), encoding="utf-8")
     (out_dir / "metrics_test.json").write_text(json.dumps(metrics_test, indent=2), encoding="utf-8")
 
-    def save_preds(path, j_true, j_base, j_pinn, j_final, t):
+    def save_preds(path, j_true, j_base, j_corrected, j_final, t):
         np.savez(path, j_true=j_true.astype(np.float32), j_stageBase=j_base.astype(np.float32),
-                 j_stagePINN=j_pinn.astype(np.float32), j_stageFinal=j_final.astype(np.float32),
+                 j_stageCorrected=j_corrected.astype(np.float32), j_stageFinal=j_final.astype(np.float32),
                  t=t.astype(np.float32))
-    save_preds(out_dir / "pred_val.npz", j_val_true, j_val_base, j_val_pinn, j_val_final, t_val)
-    save_preds(out_dir / "pred_test.npz", j_test_true, j_test_base, j_test_pinn, j_test_final, t_test)
+    save_preds(out_dir / "pred_val.npz", j_val_true, j_val_base, j_val_corrected, j_val_final, t_val)
+    save_preds(out_dir / "pred_test.npz", j_test_true, j_test_base, j_test_corrected, j_test_final, t_test)
 
     out_diag = out_dir / "diagnostics"
     out_diag_physics = out_diag / "physics"
@@ -662,15 +437,15 @@ def main():
     ensure_dir(out_diag_physics)
 
     # Physics diagnostics are computed from run bundles and predicted curves.
-    def pred_map(j_true, j_base, j_pinn, j_final):
-        return {"truth": j_true, "stageBase": j_base, "stagePINN": j_pinn, "stageFinal": j_final}
+    def pred_map(j_true, j_base, j_corrected, j_final):
+        return {"truth": j_true, "stageBase": j_base, "stageCorrected": j_corrected, "stageFinal": j_final}
     print("computing physics diagnostics for val ...")
     physics_val_rows, physics_val_summary = compute_split_physics_diagnostics(
-        val_entries, "val", pred_map(j_val_true, j_val_base, j_val_pinn, j_val_final),
+        val_entries, "val", pred_map(j_val_true, j_val_base, j_val_corrected, j_val_final),
         progress_label="physics_val", truth_key="truth", pde_anchor_key="stageBase")
     print("computing physics diagnostics for test ...")
     physics_test_rows, physics_test_summary = compute_split_physics_diagnostics(
-        test_entries, "test", pred_map(j_test_true, j_test_base, j_test_pinn, j_test_final),
+        test_entries, "test", pred_map(j_test_true, j_test_base, j_test_corrected, j_test_final),
         progress_label="physics_test", truth_key="truth", pde_anchor_key="stageBase")
     write_rows_csv(out_diag_physics / "physics_diag_val.csv", physics_val_rows)
     write_rows_csv(out_diag_physics / "physics_diag_test.csv", physics_test_rows)
@@ -706,7 +481,7 @@ def main():
     # Write one summary artifact with config, metrics, diagnostics, and runtime.
     summary = {
         "status": "ok",
-        "description": "PINN: dimensionless C*(y,t) with c-data warmup, PDE curriculum, and no-harm blend",
+        "description": "Physics-corrected surrogate with no-harm validation blend (report-final objective)",
         "seed": int(args.seed),
         "device": str(device),
         "run_root_override": args.run_root_override,
@@ -724,62 +499,34 @@ def main():
             "selected_ridge_alpha": float(backbone["ridge_alpha"]),
             "val_rmse_for_selection": float(backbone["val_rmse"]),
         },
-        "pinn_config": {
+        "corrective_config": {
             "hidden_dim": int(args.hidden_dim),
             "depth": int(args.depth),
             "fourier_frequencies": int(args.fourier_frequencies),
             "correction_scale": float(args.correction_scale),
             "initial_correction_scale": float(args.initial_correction_scale),
-            "additive_correction": bool(args.additive_correction),
+            "additive_correction": True,
             "use_learned_gate": bool(args.use_learned_gate),
             "epochs": int(args.epochs),
-            "phase2_epochs": int(args.phase2_epochs),
             "flux_warmup_epochs": int(args.flux_warmup_epochs),
             "flux_ramp_epochs": int(args.flux_ramp_epochs),
-            "pde_warmup_epochs": int(args.pde_warmup_epochs),
-            "pde_ramp_epochs": int(args.pde_ramp_epochs),
             "lr": float(args.lr),
             "batch_runs": int(args.batch_runs),
-            "concentration_points": int(args.concentration_points),
-            "collocation_points": int(args.collocation_points),
-            "bc_points": int(args.bc_points),
-            "ic_points": int(args.ic_points),
             "flux_points": int(args.flux_points),
-            "inner_profile_points": int(args.inner_profile_points),
-            "conc_log_scale": float(args.conc_log_scale),
             "flux_log_scale": float(args.flux_log_scale),
-            "phase2_weight_multipliers": {
-                "flux_consistency": float(args.phase2_weight_flux_consistency_mult),
-                "pde": float(args.phase2_weight_pde_mult),
-                "bc_top": float(args.phase2_weight_bc_top_mult),
-                "bc_bottom": float(args.phase2_weight_bc_bottom_mult),
-                "ic": float(args.phase2_weight_ic_mult),
-            },
-            "phase2_max_rel_l2_regression": float(args.phase2_max_rel_l2_regression),
             "weights": {
-                "c_data": float(args.weight_c_data),
-                "c_nonneg": float(args.weight_c_nonneg),
-                "inner_profile": float(args.weight_inner_profile),
                 "flux": float(args.weight_flux),
                 "anchor": float(args.weight_anchor),
-                "flux_consistency": float(args.weight_flux_consistency),
-                "pde": float(args.weight_pde),
-                "bc_top": float(args.weight_bc_top),
-                "bc_bottom": float(args.weight_bc_bottom),
-                "ic": float(args.weight_ic),
                 "nonneg": float(args.weight_nonneg),
                 "peak": float(args.weight_peak),
                 "gate_entropy": float(args.weight_gate_entropy),
             },
             "gate_init_bias": float(args.gate_init_bias),
         },
-        "best_val_rel_l2_stagePINN": float(train_result["best_val_rel_l2"]),
-        "best_val_cstar_rmse_stagePINN": float(train_result["best_val_cstar_rmse"]),
-        "best_phase1_val_rel_l2_stagePINN": float(train_result["best_phase1_val_rel_l2"]),
-        "phase2_status": {
+        "best_val_rel_l2_stageCorrected": float(train_result["best_val_rel_l2"]),
+        "best_phase1_val_rel_l2_stageCorrected": float(train_result["best_phase1_val_rel_l2"]),
+        "train_status": {
             "phase1_epochs": int(train_result["phase1_epochs"]),
-            "phase2_epochs": int(train_result["phase2_epochs"]),
-            "phase2_stopped_early": bool(train_result["phase2_stopped_early"]),
             "final_epoch_ran": int(train_result["final_epoch_ran"]),
         },
         "blend_lambda": float(lambda_best),
@@ -798,11 +545,11 @@ def main():
     # Persist a compact machine-readable run record for comparisons and plotting.
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     (out_dir / "history.json").write_text(json.dumps(train_result["history"], indent=2), encoding="utf-8")
-    torch.save({"model_state_dict": model.state_dict()}, out_dir / "pinn_model.pt")
+    torch.save({"model_state_dict": model.state_dict()}, out_dir / "corrective_model.pt")
 
     print("saved:", str(out_dir))
     print("stageBase test rel_l2:", metrics_test["stageBase"]["curve"]["relative_l2"])
-    print("stagePINN test rel_l2:", metrics_test["stagePINN"]["curve"]["relative_l2"])
+    print("stageCorrected test rel_l2:", metrics_test["stageCorrected"]["curve"]["relative_l2"])
     print("stageFinal test rel_l2:", metrics_test["stageFinal"]["curve"]["relative_l2"])
 
 

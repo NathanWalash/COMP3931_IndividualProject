@@ -109,7 +109,7 @@ def plot_curve_error_over_time(t, J_true, J_pred, out_path, title):
 def plot_training_history(history, out_path, title="Training history"):
     # Plot training loss curves and validation metric from history records.
     # history is a list of dicts with keys: epoch, loss_total, val_rel_l2,
-    # and optionally loss_flux, loss_pde, loss_anchor, loss_peak, gate_mean.
+    # and optionally loss_flux, loss_anchor, loss_peak, gate_mean.
     if not history or len(history) < 2:
         return
 
@@ -148,8 +148,8 @@ def plot_training_history(history, out_path, title="Training history"):
     # Panel 3 (optional): Individual loss components.
     if has_components:
         ax = axes[2]
-        component_names = ["loss_flux", "loss_pde", "loss_anchor", "loss_peak"]
-        component_colors = ["#2E7D32", "#1565C0", "#E65100", "#6A1B9A"]
+        component_names = ["loss_flux", "loss_anchor", "loss_peak"]
+        component_colors = ["#2E7D32", "#E65100", "#6A1B9A"]
         for name, color in zip(component_names, component_colors):
             values = [float(row.get(name, 0.0)) for row in history]
             if any(v > 0.0 for v in values):
