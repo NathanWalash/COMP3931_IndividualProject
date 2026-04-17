@@ -1,8 +1,8 @@
-# V3 literature-layer dataset spec for ML/PINN work.
+# V3 literature-layer dataset spec for ML physics-corrected surrogate work.
 # This file keeps ranges and split rules explicit.
 
 version: v3_literature_dataset_v1
-description: "Locked dataset-v1 spec: literature-layered V3 backbone + model-space variability for black-box and PINN"
+description: "Locked dataset-v1 spec: literature-layered V3 backbone + model-space variability for black-box and physics-corrected surrogate training"
 
 base_config: configs/sim/v3_layers_literature.yaml
 output_root: outputs/sim/v3_literature_dataset_v1
@@ -71,7 +71,7 @@ splits:
     value: 0.25
 
 targets:
-  # Primary set used for ML/PINN training reports.
+  # Primary set used for ML physics-corrected surrogate training reports.
   # Keep one delivered-mass style scalar in primary to avoid redundancy.
   # In 24h runs, AUC_J and M_delivered_24h are effectively equivalent.
   # Keep Tlag and AUC_J as secondary for finite-dose reporting.
@@ -100,7 +100,7 @@ evaluation_metrics:
     - RMSE
     - relative_error_percent
     - R2
-  pinn_physics:
+  corrective_physics:
     - pde_residual
     - bc_violation
     - ic_violation
