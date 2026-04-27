@@ -208,6 +208,5 @@ __marimo__/
 
 # Project artifacts
 outputs/
-figures/
 data/processed/
 data/processed*/
